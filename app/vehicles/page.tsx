@@ -184,7 +184,7 @@ export default function VehiclesPage() {
 
             <Button
               onClick={handleGoogleLogin}
-              className="w-full py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
+              className="w-[125%] mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
             >
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Đăng nhập bằng Google
