@@ -484,11 +484,11 @@ export default function RunPage() {
         </div>
       )}
 
-     <div className="flex justify-center -mt-12">
+     <div className="flex justify-center -mt-8">
         {!isRunning && !showResult ? (
           <Button 
             onClick={startRun}
-            className="w-[80%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl"
+            className="w-[40%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl"
             disabled={!selectedVehicle}
           >
             <Play className="mr-6 h-10 w-10" />
