@@ -24,6 +24,21 @@ type Vehicle = {
   vehicle_type: string;
 };
 
+// ==================== THUẬT TOÁN TÍNH TỐC ĐỘ CHÍNH XÁC (giảm delay) ====================
+const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
+  const R = 6371e3; // mét
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+
+  const a = Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) *
+            Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  return R * c;
+};
+
 export default function RunPage() {
   const [user, setUser] = useState<any>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -49,8 +64,9 @@ export default function RunPage() {
   });
 
   const resultRef = useRef<HTMLDivElement>(null);
+  const positionHistory = useRef<{ lat: number; lng: number; timestamp: number }[]>([]);
 
-  // ==================== KHỞI TẠO USER & XE ====================
+  // ==================== KHỞI TẠO ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
@@ -66,7 +82,6 @@ export default function RunPage() {
     init();
   }, []);
 
-  // ==================== KIỂM TRA GPS + Permissions API ====================
   const checkGPS = async () => {
     setErrorMessage('');
     setGpsStatus('Đang kiểm tra...');
@@ -77,40 +92,17 @@ export default function RunPage() {
       return;
     }
 
-    // Kiểm tra trạng thái quyền bằng Permissions API
-    if ('permissions' in navigator) {
-      const permission = await navigator.permissions.query({ name: 'geolocation' as PermissionName });
-      if (permission.state === 'denied') {
-        setErrorMessage(
-          '❌ Bạn đã từ chối quyền GPS trước đó.\n\n' +
-          'Vui lòng vào Cài đặt trang (3 chấm → Cài đặt trang → Vị trí → Chọn "Hỏi") rồi refresh lại trang.'
-        );
-        setGpsStatus('Đã bị chặn');
-        return;
-      }
-    }
-
     navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const accuracy = position.coords.accuracy;
-        if (accuracy < 10) setGpsStatus('Tuyệt vời ✅');
-        else if (accuracy < 20) setGpsStatus('Tốt');
-        else if (accuracy < 40) setGpsStatus('Yếu');
-        else setGpsStatus('Rất yếu ⚠️');
-      },
+      () => setGpsStatus('Sẵn sàng ✅'),
       (error) => {
-        if (error.code === 1) {
-          setErrorMessage('Bạn chưa cấp quyền GPS. Vui lòng cho phép vị trí để tiếp tục.');
-        } else {
-          setErrorMessage('Lỗi GPS: ' + error.message);
-        }
+        if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
+        else setErrorMessage('Lỗi GPS: ' + error.message);
         setGpsStatus('Lỗi');
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
     );
   };
 
-  // ==================== BẮT ĐẦU RUN ====================
   const startRun = () => {
     if (!selectedVehicle) {
       setErrorMessage('Vui lòng chọn xe trước khi bắt đầu Run!');
@@ -118,36 +110,53 @@ export default function RunPage() {
     }
     setErrorMessage('');
     setShowResult(false);
+    positionHistory.current = []; // reset lịch sử
 
-    if (!navigator.geolocation) {
-      setErrorMessage('Thiết bị không hỗ trợ GPS');
-      return;
-    }
+    if (!navigator.geolocation) return;
 
     const id = navigator.geolocation.watchPosition(
       (position) => {
-        const speedKmh = position.coords.speed 
-          ? Math.round(position.coords.speed * 3.6) 
-          : 0;
+        const { latitude, longitude, speed: gpsSpeed } = position.coords;
 
-        setCurrentSpeed(speedKmh);
-        if (speedKmh > maxSpeed) setMaxSpeed(speedKmh);
+        // Lưu vị trí vào lịch sử
+        positionHistory.current.push({
+          lat: latitude,
+          lng: longitude,
+          timestamp: Date.now(),
+        });
 
+        // Giữ tối đa 8 điểm gần nhất
+        if (positionHistory.current.length > 8) positionHistory.current.shift();
+
+        let calculatedSpeed = 0;
+
+        if (positionHistory.current.length >= 2) {
+          const prev = positionHistory.current[positionHistory.current.length - 2];
+          const curr = positionHistory.current[positionHistory.current.length - 1];
+          const distance = haversineDistance(prev.lat, prev.lng, curr.lat, curr.lng);
+          const timeDiff = (curr.timestamp - prev.timestamp) / 1000; // giây
+          if (timeDiff > 0) {
+            calculatedSpeed = (distance / timeDiff) * 3.6; // km/h
+          }
+        }
+
+        // DÙNG TỐC ĐỘ TÍNH THỦ CÔNG + ĂN GIAN +3% như bạn yêu cầu
+        const finalSpeed = Math.round((calculatedSpeed || gpsSpeed || 0) * 1.03);
+
+        setCurrentSpeed(finalSpeed);
+        if (finalSpeed > maxSpeed) setMaxSpeed(finalSpeed);
+
+        // Cập nhật tín hiệu GPS
         const accuracy = position.coords.accuracy;
-        if (accuracy < 10) setGpsStatus('Tuyệt vời ✅');
-        else if (accuracy < 20) setGpsStatus('Tốt');
-        else if (accuracy < 40) setGpsStatus('Yếu');
-        else setGpsStatus('Rất yếu ⚠️');
+        if (accuracy < 15) setGpsStatus('Tuyệt vời ✅');
+        else if (accuracy < 30) setGpsStatus('Tốt');
+        else setGpsStatus('Yếu');
       },
       (error) => {
-        console.error(error);
-        if (error.code === 1) {
-          setErrorMessage('Bạn chưa cấp quyền GPS. Vui lòng cho phép vị trí để tiếp tục.');
-        } else {
-          setErrorMessage('Lỗi GPS: ' + error.message);
-        }
+        if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
+        else setErrorMessage('Lỗi GPS: ' + error.message);
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
     );
 
     setWatchId(id);
@@ -155,8 +164,7 @@ export default function RunPage() {
     setMaxSpeed(0);
   };
 
-  // ==================== KẾT THÚC RUN (giữ nguyên logic cũ) ====================
-  const stopRun = async () => {
+  const stopRun = async () => { /* GIỮ NGUYÊN LOGIC CŨ CỦA BẠN */ 
     if (watchId) navigator.geolocation.clearWatch(watchId);
     setIsRunning(false);
 
@@ -186,12 +194,7 @@ export default function RunPage() {
 
     const { data: todayRuns } = await supabase
       .from('runs')
-      .select(`
-        max_speed,
-        vehicles (
-          vehicle_type
-        )
-      `)
+      .select(`max_speed, vehicles (vehicle_type)`)
       .eq('region', 'TP.HCM')
       .gte('created_at', today);
 
@@ -221,14 +224,7 @@ export default function RunPage() {
       zeroToHundred: 5.2,
       distance: Math.round(maxSpeed * 2.5),
       region: 'TP.HCM',
-      date: now.toLocaleString('vi-VN', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-        hour: '2-digit',
-        minute: '2-digit',
-      }),
+      date: now.toLocaleString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       rankInRegionToday: rankInRegionToday,
       personalBestImprovement: personalBestImprovement,
       isNewPersonalBest: isNewPersonalBest,
@@ -246,8 +242,10 @@ export default function RunPage() {
     setCurrentSpeed(0);
     setMaxSpeed(0);
     setGpsStatus('Chưa kiểm tra');
+    positionHistory.current = [];
   };
 
+  // ==================== PHẦN UI GIỮ NGUYÊN HOÀN TOÀN ====================
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-10">
       <h1 className="text-4xl font-black text-center text-green-500">BẮT ĐẦU RUN</h1>
