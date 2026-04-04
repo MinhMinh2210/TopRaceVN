@@ -62,15 +62,6 @@ const getGPSStatusInfo = (accuracy: number, speedAvailable: boolean = false) => 
   return { text: 'Yếu 📡', color: 'text-orange-400' };
 };
 
-// ==================== GPS MOCK (LUÔN BẬT AUTO) ====================
-const simulateMockPosition = (baseLat: number, baseLng: number, speedKmH: number, index: number) => {
-  const distanceMeters = (speedKmH * 1000) / 3600 * 2;
-  const bearing = 45;
-  const lat = baseLat + (distanceMeters / 111111) * Math.cos(bearing * DEG_TO_RAD);
-  const lng = baseLng + (distanceMeters / (111111 * Math.cos(baseLat * DEG_TO_RAD))) * Math.sin(bearing * DEG_TO_RAD);
-  return { latitude: lat, longitude: lng, speed: speedKmH, accuracy: Math.max(3, 12 - index * 0.8) };
-};
-
 export default function RunPage() {
   const [user, setUser] = useState<any>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
@@ -85,7 +76,6 @@ export default function RunPage() {
   const [watchId, setWatchId] = useState<number | null>(null);
 
   const [currentRegion, setCurrentRegion] = useState<string>('Đang xác định...');
-  const [mockInterval, setMockInterval] = useState<NodeJS.Timeout | null>(null);
 
   const [showResult, setShowResult] = useState(false);
   const [runResult, setRunResult] = useState({
@@ -146,46 +136,6 @@ export default function RunPage() {
     );
   };
 
-  // ==================== MOCK GPS (LUÔN BẬT) ====================
-  const startMockGPS = () => {
-    let index = 0;
-    const baseLat = 10.7769;
-    const baseLng = 106.7009;
-    let currentMockSpeed = 0;
-
-    const interval = setInterval(() => {
-      index++;
-      currentMockSpeed = Math.min(120, 15 + index * 4);
-      const mockPos = simulateMockPosition(baseLat, baseLng, currentMockSpeed, index);
-
-      setCurrentRegion(getRegionFromCoords(mockPos.latitude, mockPos.longitude));
-
-      positionHistory.current.push({ lat: mockPos.latitude, lng: mockPos.longitude, timestamp: Date.now() });
-      if (positionHistory.current.length > 8) positionHistory.current.shift();
-
-      let calculatedSpeed = currentMockSpeed;
-      if (positionHistory.current.length >= 2) {
-        const prev = positionHistory.current[positionHistory.current.length - 2];
-        const curr = positionHistory.current[positionHistory.current.length - 1];
-        const distance = haversineDistance(prev.lat, prev.lng, curr.lat, curr.lng);
-        const timeDiff = (curr.timestamp - prev.timestamp) / 1000;
-        if (timeDiff > 0) calculatedSpeed = (distance / timeDiff) * 3.6;
-      }
-
-      const finalSpeed = Math.round(calculatedSpeed * 1.03);
-      setCurrentSpeed(finalSpeed);
-      if (finalSpeed > maxSpeed) setMaxSpeed(finalSpeed);
-
-      speedHistory.current.push({ timestamp: Date.now(), speed: finalSpeed });
-
-      const info = getGPSStatusInfo(mockPos.accuracy, true);
-      setGpsStatus(info.text);
-      setGpsAccuracy(Math.round(mockPos.accuracy));
-    }, 1800);
-
-    setMockInterval(interval);
-  };
-
   const startRun = () => {
     if (!selectedVehicle) {
       setErrorMessage('Vui lòng chọn xe trước khi bắt đầu Run!');
@@ -198,16 +148,58 @@ export default function RunPage() {
     speedHistory.current = [];
     setMaxSpeed(0);
 
-    // LUÔN BẬT MOCK MODE (xịn hơn, không cần toggle)
-    startMockGPS();
+    if (!navigator.geolocation) return;
+
+    const id = navigator.geolocation.watchPosition(
+      (position) => {
+        const { latitude, longitude, speed: gpsSpeed, accuracy } = position.coords;
+
+        setCurrentRegion(getRegionFromCoords(latitude, longitude));
+
+        positionHistory.current.push({
+          lat: latitude,
+          lng: longitude,
+          timestamp: Date.now(),
+        });
+        if (positionHistory.current.length > 8) positionHistory.current.shift();
+
+        let calculatedSpeed = 0;
+        if (positionHistory.current.length >= 2) {
+          const prev = positionHistory.current[positionHistory.current.length - 2];
+          const curr = positionHistory.current[positionHistory.current.length - 1];
+          const distance = haversineDistance(prev.lat, prev.lng, curr.lat, curr.lng);
+          const timeDiff = (curr.timestamp - prev.timestamp) / 1000;
+          if (timeDiff > 0) {
+            calculatedSpeed = (distance / timeDiff) * 3.6;
+          }
+        }
+
+        // GPS THẬT + NẶNG HƠN 4%
+        let finalSpeed = Math.round((calculatedSpeed || gpsSpeed || 0) * 0.96);
+
+        setCurrentSpeed(finalSpeed);
+        if (finalSpeed > maxSpeed) setMaxSpeed(finalSpeed);
+
+        speedHistory.current.push({ timestamp: Date.now(), speed: finalSpeed });
+
+        const speedAvailable = gpsSpeed !== null && gpsSpeed !== undefined;
+        const info = getGPSStatusInfo(accuracy, speedAvailable);
+        setGpsStatus(info.text);
+        setGpsAccuracy(Math.round(accuracy));
+      },
+      (error) => {
+        if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
+        else setErrorMessage('Lỗi GPS: ' + error.message);
+      },
+      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+    );
+
+    setWatchId(id);
     setIsRunning(true);
   };
 
   const stopRun = async () => {
-    if (mockInterval) {
-      clearInterval(mockInterval);
-      setMockInterval(null);
-    }
+    if (watchId) navigator.geolocation.clearWatch(watchId);
     setIsRunning(false);
 
     let zeroToHundred = 0;
@@ -285,7 +277,7 @@ export default function RunPage() {
   };
 
   const resetRun = () => {
-    if (mockInterval) clearInterval(mockInterval);
+    if (watchId) navigator.geolocation.clearWatch(watchId);
     setShowResult(false);
     setCurrentSpeed(0);
     setMaxSpeed(0);
@@ -294,10 +286,9 @@ export default function RunPage() {
     setCurrentRegion('Đang xác định...');
     positionHistory.current = [];
     speedHistory.current = [];
-    setMockInterval(null);
   };
 
-  // ==================== UI - MOCK AUTO + NÚT KIỂM TRA GPS MÀU TRẮNG ====================
+  // ==================== UI ====================
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
       <h1 className="text-4xl font-black text-center text-green-500">BẮT ĐẦU RUN</h1>
@@ -323,7 +314,6 @@ export default function RunPage() {
         </CardContent>
       </Card>
 
-      {/* GPS CARD - NÚT KIỂM TRA GPS ĐÃ ĐỔI MÀU TRẮNG */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-[360px] mx-auto">
         <CardContent className="p-5 space-y-4">
           <div className="flex justify-between items-center text-lg">
@@ -403,7 +393,7 @@ export default function RunPage() {
       {showResult && (
         <div ref={resultRef} className="pt-8">
           <Card className="bg-zinc-900 border-zinc-800 w-full">
-            <CardContent className="p-10 text-center space-y-8">
+            <CardContent className="p-10 text-center space-y-5">
               <h2 className="text-3xl font-bold text-green-500">Run đã kết thúc!</h2>
 
               <div>
@@ -431,13 +421,8 @@ export default function RunPage() {
                 <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
               </div>
 
+              {/* Chỉ giữ lại badge kỷ lục cá nhân (đã bỏ badge "Nhanh nhất khu vực hôm nay") */}
               <div className="space-y-3 text-left border-t border-zinc-800 pt-6">
-                {runResult.rankInRegionToday <= 5 && (
-                  <div className="flex justify-between items-center bg-zinc-800 rounded-2xl px-5 py-4">
-                    <span className="text-green-400 font-medium">🏆 Nhanh nhất khu vực hôm nay</span>
-                    <span className="text-green-400">#{runResult.rankInRegionToday}</span>
-                  </div>
-                )}
                 {runResult.isNewPersonalBest && (
                   <div className="flex justify-between items-center bg-zinc-800 rounded-2xl px-5 py-4">
                     <span className="text-green-400 font-medium">🚀 Kỷ lục cá nhân</span>
@@ -446,13 +431,13 @@ export default function RunPage() {
                 )}
               </div>
 
-              <div className="flex gap-4 pt-4">
+              <div className="flex gap-4 pt -0">
                 <Button onClick={resetRun} variant="outline" className="flex-1 py-6 text-base">
                   <RotateCcw className="mr-2 h-5 w-5" />
-                  Again
+                  Agian
                 </Button>
                 <Button onClick={() => window.location.href = '/leaderboard'} className="flex-1 py-6 text-base">
-                  RANK
+                  Rank
                 </Button>
               </div>
             </CardContent>
