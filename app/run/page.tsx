@@ -97,12 +97,12 @@ export default function RunPage() {
   const lastUpdateRef = useRef<number>(0);
   const displayedSpeedRef = useRef<number>(0);
 
-  // ==================== THÊM MỚI: COUNTDOWN 5 GIÂY + RECORDING FLAG + SMOOTHING BUFFER ====================
+  // ==================== COUNTDOWN 5 GIÂY + RECORDING FLAG + SMOOTHING BUFFER ====================
   const [countdown, setCountdown] = useState<number | null>(null);
   const recordingStartedRef = useRef(false);
-  const speedBufferRef = useRef<number[]>([]);           // Moving average buffer (5 giá trị gần nhất)
-  const lastValidSpeedRef = useRef(0);                   // Dùng để chống nhảy lung tung
-  const velocityTrendRef = useRef(0);                    // Theo dõi xu hướng tăng/giảm để smooth ramp
+  const speedBufferRef = useRef<number[]>([]);           
+  const lastValidSpeedRef = useRef(0);                   
+  const velocityTrendRef = useRef(0);                    
 
   // ==================== KIỂM TRA ĐĂNG NHẬP ====================
   useEffect(() => {
@@ -118,7 +118,6 @@ export default function RunPage() {
         
         setVehicles(data || []);
         
-        // TỰ ĐỘNG CHỌN XE ĐẦU TIÊN (nếu có xe)
         if (data && data.length > 0 && !selectedVehicle) {
           setSelectedVehicle(data[0]);
         }
@@ -163,27 +162,38 @@ export default function RunPage() {
     );
   };
 
-  // ==================== TỐI ƯU THUẬT TOÁN TÍNH TỐC ĐỘ + SMOOTHING MỚI ====================
+  // ==================== TỐI ƯU SMOOTHING + ADAPTIVE ANTI-JUMP (DÀNH CHO XE 1000CC SIÊU MẠNH) ====================
   const calculateSmoothedSpeed = (rawSpeed: number): number => {
-    // Thêm vào buffer (giữ tối đa 5 giá trị)
     speedBufferRef.current.push(rawSpeed);
     if (speedBufferRef.current.length > 5) speedBufferRef.current.shift();
 
-    // Moving average
     const avg = speedBufferRef.current.reduce((a, b) => a + b, 0) / speedBufferRef.current.length;
 
-    // Exponential smoothing (EMA) mạnh hơn để chống nhảy
-    const alpha = 0.45; // Tăng độ mượt
+    const alpha = 0.48;
     let smoothed = lastValidSpeedRef.current * (1 - alpha) + avg * alpha;
 
-    // Chống jump đột ngột (> 15km/h trong 1 tick)
-    if (Math.abs(smoothed - lastValidSpeedRef.current) > 15) {
-      smoothed = lastValidSpeedRef.current + (smoothed > lastValidSpeedRef.current ? 12 : -12);
+    // ==================== ADAPTIVE ANTI-JUMP - TỐI ƯU CHO XE 1000CC ====================
+    // Xe mạnh (1000cc đề 3) có thể tăng 20-35km/h trong 1 tick GPS → cần ngưỡng linh hoạt
+    const currentSpeedForCalc = lastValidSpeedRef.current;
+    let maxAllowedJump = 18; // base
+
+    // Tăng ngưỡng khi đang tăng tốc mạnh (dựa trên trend)
+    if (velocityTrendRef.current > 8) maxAllowedJump = 26;           // đang "đè ga" mạnh
+    else if (velocityTrendRef.current > 4) maxAllowedJump = 22;
+    
+    // Tăng thêm theo tốc độ hiện tại (xe càng nhanh càng cho phép nhảy lớn hơn)
+    if (currentSpeedForCalc > 80) maxAllowedJump += 8;
+    if (currentSpeedForCalc > 120) maxAllowedJump += 6;
+
+    const diff = smoothed - lastValidSpeedRef.current;
+
+    if (Math.abs(diff) > maxAllowedJump) {
+      smoothed = lastValidSpeedRef.current + (diff > 0 ? maxAllowedJump : -maxAllowedJump);
     }
 
-    // Theo dõi trend để ramp tăng/giảm mượt (tăng dần hoặc giảm dần tự nhiên)
+    // Theo dõi trend để ramp mượt
     const trend = smoothed - lastValidSpeedRef.current;
-    velocityTrendRef.current = velocityTrendRef.current * 0.7 + trend * 0.3;
+    velocityTrendRef.current = velocityTrendRef.current * 0.65 + trend * 0.35;
 
     lastValidSpeedRef.current = Math.max(0, Math.round(smoothed));
     return lastValidSpeedRef.current;
@@ -207,7 +217,6 @@ export default function RunPage() {
     velocityTrendRef.current = 0;
     recordingStartedRef.current = false;
 
-    // ==================== ĐẾM NGƯỢC 5 GIÂY TRÊN KHUNG SPEED (để GPS ổn định) ====================
     setCountdown(5);
     let count = 5;
 
@@ -218,7 +227,6 @@ export default function RunPage() {
       if (count <= 0) {
         clearInterval(countdownInterval);
 
-        // Bắt đầu watchPosition sau countdown (GPS đã warm-up)
         if (!navigator.geolocation) return;
 
         const id = navigator.geolocation.watchPosition(
@@ -232,33 +240,30 @@ export default function RunPage() {
             if (positionHistory.current.length > 8) positionHistory.current.shift();
 
             let calculatedSpeed = 0;
-            if (positionHistory.current.length >= 3) { // Dùng 3 điểm để tính ổn định hơn
+            if (positionHistory.current.length >= 3) {
               const p1 = positionHistory.current[positionHistory.current.length - 3];
               const p2 = positionHistory.current[positionHistory.current.length - 2];
               const p3 = positionHistory.current[positionHistory.current.length - 1];
               const d1 = haversineDistance(p1.lat, p1.lng, p2.lat, p2.lng);
               const d2 = haversineDistance(p2.lat, p2.lng, p3.lat, p3.lng);
-              const distance = (d1 + d2) / 2; // Trung bình để giảm nhiễu
+              const distance = (d1 + d2) / 2;
               const timeDiff = (p3.timestamp - p1.timestamp) / 1000;
               if (timeDiff > 0) calculatedSpeed = (distance / timeDiff) * 3.6;
             }
 
             let rawSpeed = Math.max(calculatedSpeed || gpsSpeed || 0, 0);
-            rawSpeed = Math.round(rawSpeed * 0.96); // Giữ hệ số cũ
-            if (rawSpeed < 3) rawSpeed = 0; // Ngưỡng thấp hơn một chút
+            rawSpeed = Math.round(rawSpeed * 0.96);
+            if (rawSpeed < 3) rawSpeed = 0;
 
-            // ==================== CHỈ GHI DỮ LIỆU KHI >= 10 km/h ====================
             const shouldRecord = rawSpeed >= 10;
             if (shouldRecord && !recordingStartedRef.current) {
               recordingStartedRef.current = true;
-              // Reset history để bắt đầu ghi chính thức từ 10km/h
               positionHistory.current = [positionHistory.current[positionHistory.current.length - 1]!];
               speedHistory.current = [];
             }
 
-            const targetSpeed = calculateSmoothedSpeed(rawSpeed); // Smooth cực mạnh
+            const targetSpeed = calculateSmoothedSpeed(rawSpeed);
 
-            // Adaptive update interval (giữ nguyên nhưng mượt hơn)
             const timeSinceLast = now - lastUpdateRef.current;
             const adaptiveInterval = targetSpeed < 30 ? 800 : targetSpeed < 60 ? 500 : 300;
             if (timeSinceLast < adaptiveInterval && targetSpeed > 0) return;
@@ -266,15 +271,14 @@ export default function RunPage() {
             lastUpdateRef.current = now;
             displayedSpeedRef.current = targetSpeed;
 
-            // Cập nhật UI mượt (giữ nguyên logic cũ + smoothing đã có)
             setCurrentSpeed(prev => {
               const diff = displayedSpeedRef.current - prev;
-              return Math.round(prev + diff * 0.42); // Tăng nhẹ hệ số để mượt hơn
+              return Math.round(prev + diff * 0.42);
             });
 
+            // MAX SPEED luôn lấy giá trị đã smooth (đã adaptive anti-jump)
             if (targetSpeed > maxSpeed) setMaxSpeed(targetSpeed);
 
-            // Chỉ push vào history khi đã recording (tức >=10km/h)
             if (recordingStartedRef.current) {
               speedHistory.current.push({ timestamp: now, speed: targetSpeed });
             }
@@ -288,13 +292,7 @@ export default function RunPage() {
             if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
             else setErrorMessage('Lỗi GPS: ' + error.message);
           },
-          // ==================== TỐI ƯU CẤU HÌNH GPS (đã nâng cấp) ====================
-          { 
-            enableHighAccuracy: true, 
-            timeout: 3000,           // Nhanh hơn để phản hồi realtime
-            maximumAge: 0,
-            // Browser sẽ cố gắng lấy fix tốt nhất có thể
-          }
+          { enableHighAccuracy: true, timeout: 3000, maximumAge: 0 }
         );
 
         setWatchId(id);
@@ -306,7 +304,7 @@ export default function RunPage() {
   const stopRun = async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     setIsRunning(false);
-    setCountdown(null); // Đảm bảo countdown sạch
+    setCountdown(null);
 
     let zeroToHundred = 0;
     if (speedHistory.current.length >= 2) {
@@ -439,7 +437,6 @@ export default function RunPage() {
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
 
-
       {selectedVehicle && (
         <Card className="bg-zinc-900 border-zinc-800 w-full">
           <CardContent className="p-8 flex items-center gap-6">
@@ -452,12 +449,11 @@ export default function RunPage() {
         </Card>
       )}
 
-      {/* CARD TỐC ĐỘ LIVE - FULL WIDTH */}
+      {/* CARD TỐC ĐỘ LIVE */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
         <CardContent className="p-10 text-center">
           <p className="text-zinc-400 text-base mb-3">SPEED</p>
           <div className="text-[clamp(110px,26vw,170px)] font-black text-green-500 leading-none">
-            {/* ==================== HIỂN THỊ COUNTDOWN HOẶC SPEED (đã tối ưu) ==================== */}
             {countdown !== null ? (
               <span className="text-yellow-400">{countdown}</span>
             ) : (
@@ -599,6 +595,11 @@ export default function RunPage() {
           </Card>
         </div>
       )}
+      <div className="text-center py-20">
+        <h1 className="text-[2.8rem] md:text-[3.2rem] font-black leading-none tracking-tighter">
+          SPEED RANK VIETNAM
+        </h1>
+      </div>
     </div>
   );
 }
