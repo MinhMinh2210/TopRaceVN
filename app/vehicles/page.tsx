@@ -1,0 +1,352 @@
+'use client';
+
+import { useEffect, useState } from 'react';
+import { supabase } from '@/lib/supabase/client';
+import { getCurrentUser } from '@/app/features/auth/getUser';
+
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import { Car, Plus, Edit, Trash2 } from 'lucide-react';
+
+type Vehicle = {
+  id: number;
+  nickname: string;
+  brand: string;
+  model: string;
+  vehicle_type: string;
+  year: number | null;
+  mod_level: string;
+  description: string;
+};
+
+export default function VehiclesPage() {
+  const [user, setUser] = useState<any>(null);
+  const [vehicles, setVehicles] = useState<Vehicle[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+
+  const [form, setForm] = useState({
+    nickname: '',
+    brand: '',
+    model: '',
+    vehicle_type: 'xe_ga' as const,
+    year: '',
+    mod_level: 'Stock',
+    description: '',
+  });
+
+  useEffect(() => {
+    const loadData = async () => {
+      const u = await getCurrentUser();
+      if (!u) {
+        setLoading(false);
+        return;
+      }
+      setUser(u);
+
+      const { data } = await supabase
+        .from('vehicles')
+        .select('*')
+        .eq('user_id', u.id)
+        .order('created_at', { ascending: false });
+
+      setVehicles(data || []);
+      setLoading(false);
+    };
+
+    loadData();
+  }, []);
+
+  const openDialog = (vehicle?: Vehicle) => {
+    if (vehicle) {
+      setEditingVehicle(vehicle);
+      setForm({
+        nickname: vehicle.nickname,
+        brand: vehicle.brand || '',
+        model: vehicle.model || '',
+        vehicle_type: vehicle.vehicle_type as any,
+        year: vehicle.year ? String(vehicle.year) : '',
+        mod_level: vehicle.mod_level,
+        description: vehicle.description || '',
+      });
+    } else {
+      setEditingVehicle(null);
+      setForm({ nickname: '', brand: '', model: '', vehicle_type: 'xe_ga', year: '', mod_level: 'Stock', description: '' });
+    }
+    setOpen(true);
+  };
+
+  const handleAddOrUpdateVehicle = async () => {
+    if (!user || !form.nickname.trim()) {
+      alert('Vui lòng nhập ít nhất tên xe!');
+      return;
+    }
+
+    if (editingVehicle) {
+      const { error } = await supabase
+        .from('vehicles')
+        .update({
+          nickname: form.nickname.trim(),
+          brand: form.brand.trim(),
+          model: form.model.trim(),
+          vehicle_type: form.vehicle_type,
+          year: form.year ? parseInt(form.year) : null,
+          mod_level: form.mod_level,
+          description: form.description.trim(),
+        })
+        .eq('id', editingVehicle.id);
+
+      if (!error) {
+        const { data } = await supabase
+          .from('vehicles')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+        setVehicles(data || []);
+        setOpen(false);
+      } else alert('Lỗi: ' + error.message);
+    } else {
+      const { error } = await supabase.from('vehicles').insert({
+        user_id: user.id,
+        nickname: form.nickname.trim(),
+        brand: form.brand.trim(),
+        model: form.model.trim(),
+        vehicle_type: form.vehicle_type,
+        year: form.year ? parseInt(form.year) : null,
+        mod_level: form.mod_level,
+        description: form.description.trim(),
+      });
+
+      if (!error) {
+        const { data } = await supabase
+          .from('vehicles')
+          .select('*')
+          .eq('user_id', user.id)
+          .order('created_at', { ascending: false });
+        setVehicles(data || []);
+        setOpen(false);
+      } else alert('Lỗi: ' + error.message);
+    }
+
+    setForm({ nickname: '', brand: '', model: '', vehicle_type: 'xe_ga', year: '', mod_level: 'Stock', description: '' });
+    setEditingVehicle(null);
+  };
+
+  const handleDeleteVehicle = async (id: number) => {
+    if (!confirm('Bạn có chắc muốn xóa xe này không?')) return;
+
+    const { error } = await supabase.from('vehicles').delete().eq('id', id);
+    if (!error) {
+      setVehicles(vehicles.filter(v => v.id !== id));
+    } else {
+      alert('Lỗi khi xóa: ' + error.message);
+    }
+  };
+
+  if (loading) {
+    return <div className="text-center py-20 text-zinc-400">Đang tải danh sách xe...</div>;
+  }
+
+  return (
+    <div className="space-y-6 pb-20 px-4">
+      <h1 className="text-3xl font-black">Xe của tôi</h1>
+
+      <div className="space-y-6">
+        {vehicles.length === 0 ? (
+          <Card className="bg-zinc-900 border-zinc-800 w-full p-12 text-center">
+            <Car className="mx-auto h-12 w-12 text-zinc-500 mb-4" />
+            <p className="text-zinc-400">Bạn chưa có xe nào</p>
+          </Card>
+        ) : (
+          vehicles.map((v) => (
+            <div key={v.id} className="flex gap-3">
+              {/* Card thông tin xe */}
+              <Card className="flex-1 bg-zinc-900 border-zinc-800">
+                <CardHeader className="pb-8">
+                  <CardTitle className="text-4xl">{v.nickname}</CardTitle>
+                </CardHeader>
+                <CardContent className="px-8 pb-8 grid grid-cols-2 gap-y-6 text-lg">
+                  <div className="text-zinc-400">Hãng / Model</div>
+                  <div className="text-right font-medium">{v.brand} {v.model}</div>
+
+                  <div className="text-zinc-400">Loại xe</div>
+                  <div className="text-right capitalize">{v.vehicle_type.replace('_', ' ')}</div>
+
+                  <div className="text-zinc-400">Năm sản xuất</div>
+                  <div className="text-right">{v.year || '—'}</div>
+
+                  <div className="text-zinc-400">Mức độ độ</div>
+                  <div className="text-right text-green-400 font-medium">{v.mod_level}</div>
+
+                  {v.description && (
+                    <div className="col-span-2 pt-8 border-t border-zinc-800">
+                      <p className="text-base text-zinc-400">Mô tả</p>
+                      <p className="text-lg mt-3 leading-relaxed">{v.description}</p>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* 2 nút Sửa & Xóa - ĐÃ TO RỘNG HƠN 30% */}
+              <div className="flex flex-col gap-3 w-20">
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="h-full flex-1 flex-col gap-1 text-base"
+                  onClick={() => openDialog(v)}
+                >
+                  <Edit className="h-6 w-6" />
+                  <span className="text-xs">Sửa</span>
+                </Button>
+
+                <Button
+                  variant="destructive"
+                  size="lg"
+                  className="h-full flex-1 flex-col gap-1 text-base"
+                  onClick={() => handleDeleteVehicle(v.id)}
+                >
+                  <Trash2 className="h-6 w-6" />
+                  <span className="text-xs">Xóa</span>
+                </Button>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+
+      {/* Nút Thêm xe mới */}
+      <div className="fixed bottom-20 left-4 right-4 md:static md:bottom-auto md:left-auto md:right-auto md:mt-8">
+        <Dialog open={open} onOpenChange={setOpen}>
+          <DialogTrigger asChild>
+            <Button className="w-full bg-green-600 hover:bg-green-700 py-7 text-lg font-medium rounded-3xl">
+              <Plus className="mr-3 h-5 w-5" />
+              Thêm xe mới
+            </Button>
+          </DialogTrigger>
+
+          <DialogContent className="w-[95vw] max-w-[95vw] mx-2 sm:mx-auto sm:max-w-md rounded-3xl">
+            <DialogHeader>
+              <DialogTitle>{editingVehicle ? 'Sửa xe' : 'Thêm xe mới'}</DialogTitle>
+              <DialogDescription>Nhập thông tin xe của bạn</DialogDescription>
+            </DialogHeader>
+
+            <div className="grid gap-6 py-2">
+              <div>
+                <Label>Nickname xe <span className="text-red-500">*</span></Label>
+                <Input
+                  placeholder="White SH350 Demon"
+                  value={form.nickname}
+                  onChange={(e) => setForm({ ...form, nickname: e.target.value })}
+                  className="h-14 text-base"
+                />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label>Hãng xe</Label>
+                  <Input
+                    placeholder="Honda"
+                    value={form.brand}
+                    onChange={(e) => setForm({ ...form, brand: e.target.value })}
+                    className="h-14 text-base"
+                  />
+                </div>
+                <div>
+                  <Label>Model</Label>
+                  <Input
+                    placeholder="SH 350i"
+                    value={form.model}
+                    onChange={(e) => setForm({ ...form, model: e.target.value })}
+                    className="h-14 text-base"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <Label>Loại xe</Label>
+                <Select value={form.vehicle_type} onValueChange={(v) => setForm({ ...form, vehicle_type: v as any })}>
+                  <SelectTrigger className="h-14 text-base">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="xe_ga">Xe ga</SelectItem>
+                    <SelectItem value="xe_số">Xe số</SelectItem>
+                    <SelectItem value="xe_côn_tay">Xe côn tay</SelectItem>
+                    <SelectItem value="oto">Ô tô</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <Label>Năm sản xuất</Label>
+                  <Input
+                    type="number"
+                    placeholder="2024"
+                    value={form.year}
+                    onChange={(e) => setForm({ ...form, year: e.target.value })}
+                    className="h-14 text-base"
+                  />
+                </div>
+                <div>
+                  <Label>Mức độ độ</Label>
+                  <Select value={form.mod_level} onValueChange={(v) => setForm({ ...form, mod_level: v })}>
+                    <SelectTrigger className="h-14 text-base">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="Stock">Stock</SelectItem>
+                      <SelectItem value="Stage 1">Stage 1</SelectItem>
+                      <SelectItem value="Stage 2">Stage 2</SelectItem>
+                      <SelectItem value="God Mode">God Mode</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+
+              <div>
+                <Label>Mô tả ngắn</Label>
+                <Textarea
+                  placeholder="Pô full system + ECU độ nhẹ + lốp Michelin"
+                  value={form.description}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  rows={4}
+                  className="resize-none text-base"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="gap-3 pt-2">
+              <Button variant="outline" onClick={() => setOpen(false)} className="h-14 text-base">
+                Hủy
+              </Button>
+              <Button onClick={handleAddOrUpdateVehicle} className="h-14 text-base">
+                {editingVehicle ? 'Lưu thay đổi' : 'Thêm xe'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      </div>
+    </div>
+  );
+}

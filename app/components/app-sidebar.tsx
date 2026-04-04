@@ -1,6 +1,6 @@
 'use client';
 
-import { Home, Car, Trophy, History, User, LogOut } from 'lucide-react';
+import { Home, Car, Trophy, History, User } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -16,6 +16,7 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
 } from '@/components/ui/sidebar';
+
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const menuItems = [
