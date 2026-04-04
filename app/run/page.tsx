@@ -70,12 +70,12 @@ export default function RunPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [currentSpeed, setCurrentSpeed] = useState(0);
   const [maxSpeed, setMaxSpeed] = useState(0);
-  const [gpsStatus, setGpsStatus] = useState('Chưa kiểm tra');
+  const [gpsStatus, setGpsStatus] = useState('Not checked');
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [watchId, setWatchId] = useState<number | null>(null);
 
-  const [currentRegion, setCurrentRegion] = useState<string>('Đang xác định...');
+  const [currentRegion, setCurrentRegion] = useState<string>('Determining...');
 
   const [showResult, setShowResult] = useState(false);
   const [runResult, setRunResult] = useState({
@@ -96,6 +96,13 @@ export default function RunPage() {
   // ==================== TỐI ƯU GPS ====================
   const lastUpdateRef = useRef<number>(0);
   const displayedSpeedRef = useRef<number>(0);
+
+  // ==================== THÊM MỚI: COUNTDOWN 5 GIÂY + RECORDING FLAG + SMOOTHING BUFFER ====================
+  const [countdown, setCountdown] = useState<number | null>(null);
+  const recordingStartedRef = useRef(false);
+  const speedBufferRef = useRef<number[]>([]);           // Moving average buffer (5 giá trị gần nhất)
+  const lastValidSpeedRef = useRef(0);                   // Dùng để chống nhảy lung tung
+  const velocityTrendRef = useRef(0);                    // Theo dõi xu hướng tăng/giảm để smooth ramp
 
   // ==================== KIỂM TRA ĐĂNG NHẬP ====================
   useEffect(() => {
@@ -156,6 +163,32 @@ export default function RunPage() {
     );
   };
 
+  // ==================== TỐI ƯU THUẬT TOÁN TÍNH TỐC ĐỘ + SMOOTHING MỚI ====================
+  const calculateSmoothedSpeed = (rawSpeed: number): number => {
+    // Thêm vào buffer (giữ tối đa 5 giá trị)
+    speedBufferRef.current.push(rawSpeed);
+    if (speedBufferRef.current.length > 5) speedBufferRef.current.shift();
+
+    // Moving average
+    const avg = speedBufferRef.current.reduce((a, b) => a + b, 0) / speedBufferRef.current.length;
+
+    // Exponential smoothing (EMA) mạnh hơn để chống nhảy
+    const alpha = 0.45; // Tăng độ mượt
+    let smoothed = lastValidSpeedRef.current * (1 - alpha) + avg * alpha;
+
+    // Chống jump đột ngột (> 15km/h trong 1 tick)
+    if (Math.abs(smoothed - lastValidSpeedRef.current) > 15) {
+      smoothed = lastValidSpeedRef.current + (smoothed > lastValidSpeedRef.current ? 12 : -12);
+    }
+
+    // Theo dõi trend để ramp tăng/giảm mượt (tăng dần hoặc giảm dần tự nhiên)
+    const trend = smoothed - lastValidSpeedRef.current;
+    velocityTrendRef.current = velocityTrendRef.current * 0.7 + trend * 0.3;
+
+    lastValidSpeedRef.current = Math.max(0, Math.round(smoothed));
+    return lastValidSpeedRef.current;
+  };
+
   const startRun = () => {
     if (!selectedVehicle) {
       setErrorMessage('Vui lòng chọn xe trước khi bắt đầu Run!');
@@ -169,67 +202,111 @@ export default function RunPage() {
     setMaxSpeed(0);
     displayedSpeedRef.current = 0;
     setCurrentSpeed(0);
+    speedBufferRef.current = [];
+    lastValidSpeedRef.current = 0;
+    velocityTrendRef.current = 0;
+    recordingStartedRef.current = false;
 
-    if (!navigator.geolocation) return;
+    // ==================== ĐẾM NGƯỢC 5 GIÂY TRÊN KHUNG SPEED (để GPS ổn định) ====================
+    setCountdown(5);
+    let count = 5;
 
-    const id = navigator.geolocation.watchPosition(
-      (position) => {
-        const now = Date.now();
-        const { latitude, longitude, speed: gpsSpeed, accuracy } = position.coords;
+    const countdownInterval = setInterval(() => {
+      count--;
+      setCountdown(count > 0 ? count : null);
 
-        setCurrentRegion(getRegionFromCoords(latitude, longitude));
+      if (count <= 0) {
+        clearInterval(countdownInterval);
 
-        positionHistory.current.push({ lat: latitude, lng: longitude, timestamp: now });
-        if (positionHistory.current.length > 8) positionHistory.current.shift();
+        // Bắt đầu watchPosition sau countdown (GPS đã warm-up)
+        if (!navigator.geolocation) return;
 
-        let calculatedSpeed = 0;
-        if (positionHistory.current.length >= 2) {
-          const prev = positionHistory.current[positionHistory.current.length - 2];
-          const curr = positionHistory.current[positionHistory.current.length - 1];
-          const distance = haversineDistance(prev.lat, prev.lng, curr.lat, curr.lng);
-          const timeDiff = (curr.timestamp - prev.timestamp) / 1000;
-          if (timeDiff > 0) calculatedSpeed = (distance / timeDiff) * 3.6;
-        }
+        const id = navigator.geolocation.watchPosition(
+          (position) => {
+            const now = Date.now();
+            const { latitude, longitude, speed: gpsSpeed, accuracy } = position.coords;
 
-        let targetSpeed = Math.round((calculatedSpeed || gpsSpeed || 0) * 0.96);
-        if (targetSpeed < 5) targetSpeed = 0;
+            setCurrentRegion(getRegionFromCoords(latitude, longitude));
 
-        const timeSinceLast = now - lastUpdateRef.current;
-        const adaptiveInterval = targetSpeed < 30 ? 800 : targetSpeed < 60 ? 500 : 300;
-        if (timeSinceLast < adaptiveInterval && targetSpeed > 0) return;
+            positionHistory.current.push({ lat: latitude, lng: longitude, timestamp: now });
+            if (positionHistory.current.length > 8) positionHistory.current.shift();
 
-        lastUpdateRef.current = now;
+            let calculatedSpeed = 0;
+            if (positionHistory.current.length >= 3) { // Dùng 3 điểm để tính ổn định hơn
+              const p1 = positionHistory.current[positionHistory.current.length - 3];
+              const p2 = positionHistory.current[positionHistory.current.length - 2];
+              const p3 = positionHistory.current[positionHistory.current.length - 1];
+              const d1 = haversineDistance(p1.lat, p1.lng, p2.lat, p2.lng);
+              const d2 = haversineDistance(p2.lat, p2.lng, p3.lat, p3.lng);
+              const distance = (d1 + d2) / 2; // Trung bình để giảm nhiễu
+              const timeDiff = (p3.timestamp - p1.timestamp) / 1000;
+              if (timeDiff > 0) calculatedSpeed = (distance / timeDiff) * 3.6;
+            }
 
-        displayedSpeedRef.current = targetSpeed;
+            let rawSpeed = Math.max(calculatedSpeed || gpsSpeed || 0, 0);
+            rawSpeed = Math.round(rawSpeed * 0.96); // Giữ hệ số cũ
+            if (rawSpeed < 3) rawSpeed = 0; // Ngưỡng thấp hơn một chút
 
-        setCurrentSpeed(prev => {
-          const diff = displayedSpeedRef.current - prev;
-          return Math.round(prev + diff * 0.35);
-        });
+            // ==================== CHỈ GHI DỮ LIỆU KHI >= 10 km/h ====================
+            const shouldRecord = rawSpeed >= 10;
+            if (shouldRecord && !recordingStartedRef.current) {
+              recordingStartedRef.current = true;
+              // Reset history để bắt đầu ghi chính thức từ 10km/h
+              positionHistory.current = [positionHistory.current[positionHistory.current.length - 1]!];
+              speedHistory.current = [];
+            }
 
-        if (targetSpeed > maxSpeed) setMaxSpeed(targetSpeed);
+            const targetSpeed = calculateSmoothedSpeed(rawSpeed); // Smooth cực mạnh
 
-        speedHistory.current.push({ timestamp: now, speed: targetSpeed });
+            // Adaptive update interval (giữ nguyên nhưng mượt hơn)
+            const timeSinceLast = now - lastUpdateRef.current;
+            const adaptiveInterval = targetSpeed < 30 ? 800 : targetSpeed < 60 ? 500 : 300;
+            if (timeSinceLast < adaptiveInterval && targetSpeed > 0) return;
 
-        const speedAvailable = gpsSpeed !== null && gpsSpeed !== undefined;
-        const info = getGPSStatusInfo(accuracy, speedAvailable);
-        setGpsStatus(info.text);
-        setGpsAccuracy(Math.round(accuracy));
-      },
-      (error) => {
-        if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
-        else setErrorMessage('Lỗi GPS: ' + error.message);
-      },
-      { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
-    );
+            lastUpdateRef.current = now;
+            displayedSpeedRef.current = targetSpeed;
 
-    setWatchId(id);
-    setIsRunning(true);
+            // Cập nhật UI mượt (giữ nguyên logic cũ + smoothing đã có)
+            setCurrentSpeed(prev => {
+              const diff = displayedSpeedRef.current - prev;
+              return Math.round(prev + diff * 0.42); // Tăng nhẹ hệ số để mượt hơn
+            });
+
+            if (targetSpeed > maxSpeed) setMaxSpeed(targetSpeed);
+
+            // Chỉ push vào history khi đã recording (tức >=10km/h)
+            if (recordingStartedRef.current) {
+              speedHistory.current.push({ timestamp: now, speed: targetSpeed });
+            }
+
+            const speedAvailable = gpsSpeed !== null && gpsSpeed !== undefined;
+            const info = getGPSStatusInfo(accuracy, speedAvailable);
+            setGpsStatus(info.text);
+            setGpsAccuracy(Math.round(accuracy));
+          },
+          (error) => {
+            if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
+            else setErrorMessage('Lỗi GPS: ' + error.message);
+          },
+          // ==================== TỐI ƯU CẤU HÌNH GPS (đã nâng cấp) ====================
+          { 
+            enableHighAccuracy: true, 
+            timeout: 3000,           // Nhanh hơn để phản hồi realtime
+            maximumAge: 0,
+            // Browser sẽ cố gắng lấy fix tốt nhất có thể
+          }
+        );
+
+        setWatchId(id);
+        setIsRunning(true);
+      }
+    }, 1000);
   };
 
   const stopRun = async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     setIsRunning(false);
+    setCountdown(null); // Đảm bảo countdown sạch
 
     let zeroToHundred = 0;
     if (speedHistory.current.length >= 2) {
@@ -313,8 +390,11 @@ export default function RunPage() {
     setGpsStatus('Chưa kiểm tra');
     setGpsAccuracy(null);
     setCurrentRegion('Đang xác định...');
+    setCountdown(null);
     positionHistory.current = [];
     speedHistory.current = [];
+    recordingStartedRef.current = false;
+    speedBufferRef.current = [];
   };
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
@@ -358,7 +438,7 @@ export default function RunPage() {
   // ==================== ĐÃ ĐĂNG NHẬP - GIAO DIỆN RUN ====================
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-      <h1 className="text-4xl font-black text-center text-green-500">BẮT ĐẦU RUN</h1>
+
 
       {selectedVehicle && (
         <Card className="bg-zinc-900 border-zinc-800 w-full">
@@ -375,18 +455,25 @@ export default function RunPage() {
       {/* CARD TỐC ĐỘ LIVE - FULL WIDTH */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
         <CardContent className="p-10 text-center">
-          <p className="text-zinc-400 text-base mb-3">Tốc độ hiện tại</p>
+          <p className="text-zinc-400 text-base mb-3">SPEED</p>
           <div className="text-[clamp(110px,26vw,170px)] font-black text-green-500 leading-none">
-            {currentSpeed}
+            {/* ==================== HIỂN THỊ COUNTDOWN HOẶC SPEED (đã tối ưu) ==================== */}
+            {countdown !== null ? (
+              <span className="text-yellow-400">{countdown}</span>
+            ) : (
+              currentSpeed
+            )}
           </div>
-          <p className="text-zinc-400 text-4xl mt-2">km/h</p>
+          <p className="text-zinc-400 text-4xl mt-2">
+            {countdown !== null ? 'GET READY' : 'km/h'}
+          </p>
         </CardContent>
       </Card>
 
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-[360px] mx-auto">
         <CardContent className="p-5 space-y-4">
           <div className="flex justify-between items-center text-lg">
-            <span className="text-zinc-400">Tín hiệu GPS</span>
+            <span className="text-zinc-400">GPS</span>
             <div className="flex items-center gap-2">
               <span className={`font-medium ${getGPSStatusInfo(gpsAccuracy || 999, true).color}`}>
                 {gpsStatus}
@@ -399,7 +486,7 @@ export default function RunPage() {
             onClick={checkGPS}
             className="w-full py-6 text-lg font-semibold bg-white hover:bg-zinc-100 text-zinc-900 rounded-2xl"
           >
-            🔄 Kiểm tra GPS
+            GPS Checking
           </Button>
         </CardContent>
       </Card>
@@ -419,7 +506,7 @@ export default function RunPage() {
             disabled={!selectedVehicle}
           >
             <Play className="mr-6 h-10 w-10" />
-            BẮT ĐẦU RUN
+            START
           </Button>
         ) : isRunning ? (
           <Button 
@@ -427,7 +514,7 @@ export default function RunPage() {
             className="w-full py-12 text-4xl bg-red-600 hover:bg-red-700 rounded-3xl"
           >
             <Square className="mr-6 h-10 w-10" />
-            KẾT THÚC RUN
+            END
           </Button>
         ) : null}
       </div>
@@ -463,7 +550,7 @@ export default function RunPage() {
         <div ref={resultRef} className="pt-8">
           <Card className="bg-zinc-900 border-zinc-800 w-full">
             <CardContent className="p-10 text-center space-y-8">
-              <h2 className="text-3xl font-bold text-green-500">Run đã kết thúc!</h2>
+              <h2 className="text-3xl font-bold text-green-500">End!</h2>
 
               <div>
                 <p className="text-zinc-400 text-base">Top Speed cao nhất</p>
@@ -486,7 +573,7 @@ export default function RunPage() {
               </div>
 
               <div>
-                <p className="text-zinc-400 text-sm">Xếp hạng hiện tại</p>
+                <p className="text-zinc-400 text-sm"></p>
                 <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
               </div>
 
@@ -502,10 +589,10 @@ export default function RunPage() {
               <div className="flex gap-4 pt-4">
                 <Button onClick={resetRun} variant="outline" className="flex-1 py-6 text-base">
                   <RotateCcw className="mr-2 h-5 w-5" />
-                  Run mới
+                  Again
                 </Button>
                 <Button onClick={() => window.location.href = '/leaderboard'} className="flex-1 py-6 text-base">
-                  Xem bảng xếp hạng
+                  Rank
                 </Button>
               </div>
             </CardContent>
