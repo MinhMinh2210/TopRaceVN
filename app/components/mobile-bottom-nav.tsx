@@ -1,12 +1,12 @@
 'use client';
 
-import { Home, Car, Trophy, History, User } from 'lucide-react';
+import { Home, Car, Trophy, History, User, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
 const navItems = [
   { title: 'Trang chủ', url: '/', icon: Home },
-  { title: 'Run', url: '/run', icon: Car },
+  { title: 'Run', url: '/run', icon: Clock },
   { title: 'Xe', url: '/vehicles', icon: Car },
   { title: 'Rank', url: '/leaderboard', icon: Trophy },
   { title: 'Tôi', url: '/profile', icon: User },

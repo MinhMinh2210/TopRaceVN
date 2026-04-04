@@ -1,6 +1,6 @@
 'use client';
 
-import { Home, Car, Trophy, History, User } from 'lucide-react';
+import { Home, Car, Trophy, History, User, Clock } from 'lucide-react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 
@@ -21,9 +21,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 const menuItems = [
   { title: 'Trang chủ', url: '/', icon: Home },
-  { title: 'Bắt đầu Run', url: '/run', icon: Car },
+  { title: 'Bắt đầu Run', url: '/run', icon: Clock },
   { title: 'Xe của tôi', url: '/vehicles', icon: Car },
-  { title: 'Lịch sử Run', url: '/history', icon: History },
   { title: 'Bảng xếp hạng', url: '/leaderboard', icon: Trophy },
   { title: 'Profile', url: '/profile', icon: User },
 ];

@@ -30,7 +30,7 @@ export default function Home() {
   const [user, setUser] = useState<any>(null);
   const [vehicle, setVehicle] = useState<Vehicle | null>(null);
   const [bestRun, setBestRun] = useState<Run | null>(null);
-  const [currentRank, setCurrentRank] = useState<number | null>(null);   // ← Rank thật
+  const [currentRank, setCurrentRank] = useState<number | null>(null);
   const [runCountToday, setRunCountToday] = useState(0);
   const [loading, setLoading] = useState(true);
 
@@ -55,7 +55,7 @@ export default function Home() {
 
       setVehicle(vehicleData);
 
-      // Lấy run tốt nhất
+      // Lấy run tốt nhất (có luôn region)
       const { data: bestRunData } = await supabase
         .from('runs')
         .select('max_speed, zero_to_hundred, region')
@@ -66,7 +66,7 @@ export default function Home() {
 
       setBestRun(bestRunData);
 
-      // Tính rank thật (dựa trên max_speed)
+      // Tính rank thật
       if (bestRunData?.max_speed) {
         const { count } = await supabase
           .from('runs')
@@ -168,7 +168,7 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        {/* 4. Rank hiện tại - ĐÃ LÀ DỮ LIỆU THẬT */}
+        {/* 4. Rank hiện tại - REGION LẤY TỪ RUN THẬT */}
         <Link href="/leaderboard" className="block">
           <Card className="bg-zinc-900 border-zinc-800 cursor-pointer hover:bg-zinc-800 active:scale-[0.985] transition-all h-full">
             <CardHeader className="pb-3">
@@ -181,7 +181,9 @@ export default function Home() {
               <p className="text-5xl font-bold text-green-500">
                 #{currentRank || '--'}
               </p>
-              <p className="text-zinc-400 text-sm">TP.HCM • Top Speed</p>
+              <p className="text-zinc-400 text-sm">
+                {bestRun?.region || 'Chưa xác định'} • Top Speed
+              </p>
             </CardContent>
           </Card>
         </Link>
@@ -198,17 +200,60 @@ export default function Home() {
       </div>
 
       {/* Nút Bắt đầu Run lớn */}
-      <Card className="bg-gradient-to-br from-green-600 to-green-700 border-0">
-        <CardContent className="p-10 text-center">
-          <Car className="w-16 h-16 mx-auto mb-6 text-black" />
-          <h2 className="text-4xl font-bold mb-3">Sẵn sàng chạy chưa?</h2>
-          <p className="text-green-100 mb-8">Bấm để bắt đầu ghi GPS ngay</p>
-          <Button
-            size="lg"
-            className="bg-black hover:bg-zinc-900 text-white text-xl px-16 py-8 rounded-2xl w-full"
-          >
-            🚀 BẮT ĐẦU RUN NGAY
-          </Button>
+      {/* ==================== CARD THỜI TIẾT + VỆ TINH GPS (ĐÃ SỬA LỖI) ==================== */}
+      <Card className="bg-gradient-to-br from-zinc-900 to-emerald-950 border border-emerald-500/30 shadow-2xl">
+        <CardContent className="p-8">
+          <div className="flex justify-between items-start mb-6">
+            <div>
+              <p className="text-emerald-400 text-sm font-medium tracking-widest">KHU VỰC HIỆN TẠI</p>
+              <p className="text-3xl font-bold text-white">TP.HCM</p>
+            </div>
+            
+            {/* Thời tiết hiện tại */}
+            <div className="text-right">
+              <div className="text-6xl mb-1">☀️</div>
+              <p className="text-4xl font-semibold text-white">33°C</p>
+              <p className="text-emerald-300 text-sm">Nắng nóng • Độ ẩm 62%</p>
+            </div>
+          </div>
+
+          {/* Số vệ tinh GPS */}
+          <div className="bg-black/40 rounded-3xl p-6 mb-6">
+            <div className="flex justify-between items-center">
+              <div>
+                <p className="text-zinc-400 text-sm">SỐ VỆ TINH GPS ĐANG KẾT NỐI</p>
+                <p className="text-5xl font-black text-cyan-400">17 <span className="text-2xl text-cyan-300">/ 24</span></p>
+              </div>
+              <div className="text-right">
+                <div className="inline-flex items-center gap-2 bg-emerald-500/20 text-emerald-400 text-sm font-medium px-4 py-2 rounded-2xl">
+                  <span className="w-3 h-3 bg-emerald-400 rounded-full animate-pulse"></span>
+                  TÍN HIỆU RẤT TỐT
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Khu vực lân cận */}
+          <div>
+            <p className="text-zinc-400 text-sm mb-4">KHU VỰC LÂN CẬN</p>
+            <div className="grid grid-cols-3 gap-4">
+              <div className="text-center bg-black/30 rounded-2xl p-4">
+                <p className="text-xs text-zinc-400">Bình Dương</p>
+                <p className="text-2xl">34°C</p>
+                <p className="text-amber-400 text-sm">🌤️ 14 vệ tinh</p>
+              </div>
+              <div className="text-center bg-black/30 rounded-2xl p-4">
+                <p className="text-xs text-zinc-400">Đồng Nai</p>
+                <p className="text-2xl">32°C</p>
+                <p className="text-amber-400 text-sm">⛅ 15 vệ tinh</p>
+              </div>
+              <div className="text-center bg-black/30 rounded-2xl p-4">
+                <p className="text-xs text-zinc-400">Long An</p>
+                <p className="text-2xl">35°C</p>
+                <p className="text-amber-400 text-sm">☀️ 16 vệ tinh</p>
+              </div>
+            </div>
+          </div>
         </CardContent>
       </Card>
     </div>
