@@ -93,21 +93,41 @@ export default function RunPage() {
   const positionHistory = useRef<{ lat: number; lng: number; timestamp: number }[]>([]);
   const speedHistory = useRef<{ timestamp: number; speed: number }[]>([]);
 
-  // ==================== KHỞI TẠO ====================
+  // ==================== TỐI ƯU GPS ====================
+  const lastUpdateRef = useRef<number>(0);
+  const displayedSpeedRef = useRef<number>(0);
+
+  // ==================== KIỂM TRA ĐĂNG NHẬP ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
+      setUser(u);
+
       if (u) {
-        setUser(u);
         const { data } = await supabase
           .from('vehicles')
           .select('id, nickname, brand, model, vehicle_type')
           .eq('user_id', u.id);
+        
         setVehicles(data || []);
+        
+        // TỰ ĐỘNG CHỌN XE ĐẦU TIÊN (nếu có xe)
+        if (data && data.length > 0 && !selectedVehicle) {
+          setSelectedVehicle(data[0]);
+        }
       }
     };
     init();
   }, []);
+
+  const handleGoogleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin + '/run',
+      },
+    });
+  };
 
   const checkGPS = async () => {
     setErrorMessage('');
@@ -147,20 +167,19 @@ export default function RunPage() {
     positionHistory.current = [];
     speedHistory.current = [];
     setMaxSpeed(0);
+    displayedSpeedRef.current = 0;
+    setCurrentSpeed(0);
 
     if (!navigator.geolocation) return;
 
     const id = navigator.geolocation.watchPosition(
       (position) => {
+        const now = Date.now();
         const { latitude, longitude, speed: gpsSpeed, accuracy } = position.coords;
 
         setCurrentRegion(getRegionFromCoords(latitude, longitude));
 
-        positionHistory.current.push({
-          lat: latitude,
-          lng: longitude,
-          timestamp: Date.now(),
-        });
+        positionHistory.current.push({ lat: latitude, lng: longitude, timestamp: now });
         if (positionHistory.current.length > 8) positionHistory.current.shift();
 
         let calculatedSpeed = 0;
@@ -169,18 +188,28 @@ export default function RunPage() {
           const curr = positionHistory.current[positionHistory.current.length - 1];
           const distance = haversineDistance(prev.lat, prev.lng, curr.lat, curr.lng);
           const timeDiff = (curr.timestamp - prev.timestamp) / 1000;
-          if (timeDiff > 0) {
-            calculatedSpeed = (distance / timeDiff) * 3.6;
-          }
+          if (timeDiff > 0) calculatedSpeed = (distance / timeDiff) * 3.6;
         }
 
-        // GPS THẬT + NẶNG HƠN 4%
-        let finalSpeed = Math.round((calculatedSpeed || gpsSpeed || 0) * 0.96);
+        let targetSpeed = Math.round((calculatedSpeed || gpsSpeed || 0) * 0.96);
+        if (targetSpeed < 5) targetSpeed = 0;
 
-        setCurrentSpeed(finalSpeed);
-        if (finalSpeed > maxSpeed) setMaxSpeed(finalSpeed);
+        const timeSinceLast = now - lastUpdateRef.current;
+        const adaptiveInterval = targetSpeed < 30 ? 800 : targetSpeed < 60 ? 500 : 300;
+        if (timeSinceLast < adaptiveInterval && targetSpeed > 0) return;
 
-        speedHistory.current.push({ timestamp: Date.now(), speed: finalSpeed });
+        lastUpdateRef.current = now;
+
+        displayedSpeedRef.current = targetSpeed;
+
+        setCurrentSpeed(prev => {
+          const diff = displayedSpeedRef.current - prev;
+          return Math.round(prev + diff * 0.35);
+        });
+
+        if (targetSpeed > maxSpeed) setMaxSpeed(targetSpeed);
+
+        speedHistory.current.push({ timestamp: now, speed: targetSpeed });
 
         const speedAvailable = gpsSpeed !== null && gpsSpeed !== undefined;
         const info = getGPSStatusInfo(accuracy, speedAvailable);
@@ -288,7 +317,45 @@ export default function RunPage() {
     speedHistory.current = [];
   };
 
-  // ==================== UI ====================
+  // ==================== CHƯA ĐĂNG NHẬP ====================
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
+        <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
+          <CardContent className="p-10 text-center">
+            <div className="mx-auto w-20 h-20 bg-zinc-800 rounded-2xl flex items-center justify-center mb-6">
+              <Car className="w-10 h-10 text-green-500" />
+            </div>
+            <h1 className="text-3xl font-black mb-2">BẮT ĐẦU RUN</h1>
+            <p className="text-zinc-400 mb-8">Đăng nhập để bắt đầu ghi tốc độ và lưu kết quả</p>
+
+            <Button
+              onClick={async () => {
+                await supabase.auth.signInWithOAuth({
+                  provider: 'google',
+                  options: { redirectTo: window.location.origin + '/run' },
+                });
+              }}
+              className="w-full py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
+            >
+              <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+              Đăng nhập bằng Google
+            </Button>
+
+            <Button
+              variant="outline"
+              className="w-full mt-4 py-6 text-base"
+              onClick={() => window.location.href = '/'}
+            >
+              ← Quay về trang chủ
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // ==================== ĐÃ ĐĂNG NHẬP - GIAO DIỆN RUN ====================
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
       <h1 className="text-4xl font-black text-center text-green-500">BẮT ĐẦU RUN</h1>
@@ -305,12 +372,14 @@ export default function RunPage() {
         </Card>
       )}
 
-      <Card className="bg-zinc-900 border-zinc-800 w-full">
-        <CardContent className="p-28 text-center">
-          <div className="text-[220px] font-black text-green-500 leading-none">
+      {/* CARD TỐC ĐỘ LIVE - FULL WIDTH */}
+      <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
+        <CardContent className="p-10 text-center">
+          <p className="text-zinc-400 text-base mb-3">Tốc độ hiện tại</p>
+          <div className="text-[clamp(110px,26vw,170px)] font-black text-green-500 leading-none">
             {currentSpeed}
           </div>
-          <p className="text-zinc-400 text-6xl mt-6">km/h</p>
+          <p className="text-zinc-400 text-4xl mt-2">km/h</p>
         </CardContent>
       </Card>
 
@@ -393,7 +462,7 @@ export default function RunPage() {
       {showResult && (
         <div ref={resultRef} className="pt-8">
           <Card className="bg-zinc-900 border-zinc-800 w-full">
-            <CardContent className="p-10 text-center space-y-5">
+            <CardContent className="p-10 text-center space-y-8">
               <h2 className="text-3xl font-bold text-green-500">Run đã kết thúc!</h2>
 
               <div>
@@ -421,7 +490,6 @@ export default function RunPage() {
                 <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
               </div>
 
-              {/* Chỉ giữ lại badge kỷ lục cá nhân (đã bỏ badge "Nhanh nhất khu vực hôm nay") */}
               <div className="space-y-3 text-left border-t border-zinc-800 pt-6">
                 {runResult.isNewPersonalBest && (
                   <div className="flex justify-between items-center bg-zinc-800 rounded-2xl px-5 py-4">
@@ -431,13 +499,13 @@ export default function RunPage() {
                 )}
               </div>
 
-              <div className="flex gap-4 pt -0">
+              <div className="flex gap-4 pt-4">
                 <Button onClick={resetRun} variant="outline" className="flex-1 py-6 text-base">
                   <RotateCcw className="mr-2 h-5 w-5" />
-                  Agian
+                  Run mới
                 </Button>
                 <Button onClick={() => window.location.href = '/leaderboard'} className="flex-1 py-6 text-base">
-                  Rank
+                  Xem bảng xếp hạng
                 </Button>
               </div>
             </CardContent>

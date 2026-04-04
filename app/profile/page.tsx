@@ -15,7 +15,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogFooter,        // ← ĐÃ THÊM
+  DialogFooter,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -41,6 +41,7 @@ type RunHistory = {
 };
 
 export default function MyProfilePage() {
+  const [user, setUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [runsHistory, setRunsHistory] = useState<RunHistory[]>([]);
@@ -55,26 +56,35 @@ export default function MyProfilePage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedRun, setSelectedRun] = useState<RunHistory | null>(null);
 
+  // ==================== KIỂM TRA ĐĂNG NHẬP & LOAD DATA ====================
   useEffect(() => {
     const loadData = async () => {
-      const user = await getCurrentUser();
-      if (!user) return;
+      const currentUser = await getCurrentUser();
+      setUser(currentUser);
 
+      if (!currentUser) {
+        setLoading(false);
+        return;
+      }
+
+      // Load profile
       const { data: prof } = await supabase
         .from('profiles')
         .select('nickname, full_name, avatar_url, bio')
-        .eq('id', user.id)
+        .eq('id', currentUser.id)
         .single();
 
       setProfile(prof);
       setEditForm(prof || { nickname: '', full_name: '', avatar_url: '', bio: '' });
 
+      // Load vehicles
       const { data: veh } = await supabase
         .from('vehicles')
         .select('*')
-        .eq('user_id', user.id);
+        .eq('user_id', currentUser.id);
       setVehicles(veh || []);
 
+      // Load run history
       const { data: history } = await supabase
         .from('runs')
         .select(`
@@ -85,7 +95,7 @@ export default function MyProfilePage() {
           region,
           vehicles (nickname, vehicle_type)
         `)
-        .eq('user_id', user.id)
+        .eq('user_id', currentUser.id)
         .order('created_at', { ascending: false })
         .limit(10);
 
@@ -100,15 +110,16 @@ export default function MyProfilePage() {
 
       setRunsHistory(formatted);
 
+      // Stats
       const { count } = await supabase
         .from('runs')
         .select('*', { count: 'exact' })
-        .eq('user_id', user.id);
+        .eq('user_id', currentUser.id);
 
       const { data: best } = await supabase
         .from('runs')
         .select('max_speed')
-        .eq('user_id', user.id)
+        .eq('user_id', currentUser.id)
         .order('max_speed', { ascending: false })
         .limit(1);
 
@@ -124,6 +135,19 @@ export default function MyProfilePage() {
     loadData();
   }, []);
 
+  const handleGoogleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin + '/profile',
+      },
+    });
+  };
+
+  const handleLogout = async () => {
+    await logout();
+  };
+
   const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
@@ -133,7 +157,6 @@ export default function MyProfilePage() {
   };
 
   const handleUpdateProfile = async () => {
-    const user = await getCurrentUser();
     if (!user) return;
 
     let avatarUrl = editForm.avatar_url;
@@ -161,10 +184,42 @@ export default function MyProfilePage() {
     setPreviewUrl('');
   };
 
-  const handleLogout = async () => await logout();
-
   if (loading) return <div className="p-6 text-center">Đang tải...</div>;
 
+  // ==================== CHƯA ĐĂNG NHẬP ====================
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
+        <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
+          <CardContent className="p-10 text-center">
+            <div className="mx-auto w-20 h-20 bg-zinc-800 rounded-2xl flex items-center justify-center mb-6">
+              <Car className="w-10 h-10 text-green-500" />
+            </div>
+            <h1 className="text-3xl font-black mb-2">Chào mừng trở lại!</h1>
+            <p className="text-zinc-400 mb-8">Đăng nhập để xem profile và lịch sử Run của bạn</p>
+
+            <Button
+              onClick={handleGoogleLogin}
+              className="w-full py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
+            >
+              <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+              Đăng nhập bằng Google
+            </Button>
+
+            <Button
+              variant="outline"
+              className="w-full mt-4 py-6 text-base"
+              onClick={() => window.location.href = '/'}
+            >
+              ← Quay về trang chủ
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // ==================== ĐÃ ĐĂNG NHẬP - PROFILE ====================
   return (
     <div className="space-y-6 pb-20 px-4">
       <div className="flex flex-col items-center text-center pt-4">

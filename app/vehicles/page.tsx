@@ -4,8 +4,11 @@ import { useEffect, useState } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
-import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
   Dialog,
   DialogContent,
@@ -18,13 +21,6 @@ import {
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import { Car, Plus, Edit, Trash2 } from 'lucide-react';
 
 type Vehicle = {
@@ -55,14 +51,16 @@ export default function VehiclesPage() {
     description: '',
   });
 
+  // ==================== KIỂM TRA ĐĂNG NHẬP ====================
   useEffect(() => {
     const loadData = async () => {
       const u = await getCurrentUser();
+      setUser(u);
+
       if (!u) {
         setLoading(false);
         return;
       }
-      setUser(u);
 
       const { data } = await supabase
         .from('vehicles')
@@ -76,6 +74,15 @@ export default function VehiclesPage() {
 
     loadData();
   }, []);
+
+  const handleGoogleLogin = async () => {
+    await supabase.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: window.location.origin + '/vehicles',
+      },
+    });
+  };
 
   const openDialog = (vehicle?: Vehicle) => {
     if (vehicle) {
@@ -163,6 +170,40 @@ export default function VehiclesPage() {
     }
   };
 
+  // ==================== CHƯA ĐĂNG NHẬP ====================
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
+        <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
+          <CardContent className="p-10 text-center">
+            <div className="mx-auto w-20 h-20 bg-zinc-800 rounded-2xl flex items-center justify-center mb-6">
+              <Car className="w-10 h-10 text-green-500" />
+            </div>
+            <h1 className="text-3xl font-black mb-2">Xe của tôi</h1>
+            <p className="text-zinc-400 mb-8">Đăng nhập để quản lý xe và lịch sử Run</p>
+
+            <Button
+              onClick={handleGoogleLogin}
+              className="w-full py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
+            >
+              <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
+              Đăng nhập bằng Google
+            </Button>
+
+            <Button
+              variant="outline"
+              className="w-full mt-4 py-6 text-base"
+              onClick={() => window.location.href = '/'}
+            >
+              ← Quay về trang chủ
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  // ==================== ĐÃ ĐĂNG NHẬP - DANH SÁCH XE ====================
   if (loading) {
     return <div className="text-center py-20 text-zinc-400">Đang tải danh sách xe...</div>;
   }
@@ -207,7 +248,7 @@ export default function VehiclesPage() {
                 </CardContent>
               </Card>
 
-              {/* 2 nút Sửa & Xóa - ĐÃ TO RỘNG HƠN 30% */}
+              {/* 2 nút Sửa & Xóa */}
               <div className="flex flex-col gap-3 w-20">
                 <Button
                   variant="outline"
