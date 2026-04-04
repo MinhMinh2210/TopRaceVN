@@ -51,6 +51,7 @@ export default function RunPage() {
 
   const resultRef = useRef<HTMLDivElement>(null);
 
+  // ==================== TỰ ĐỘNG YÊU CẤU QUYỀN GPS NGAY KHI VÀO TRANG ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
@@ -61,6 +62,11 @@ export default function RunPage() {
           .select('id, nickname, brand, model, vehicle_type')
           .eq('user_id', u.id);
         setVehicles(data || []);
+        
+        // 🔥 YÊU CẦU CẤP QUYỀN GPS NGAY KHI TRANG LOAD XONG
+        setTimeout(() => {
+          checkGPS();
+        }, 800); // delay nhẹ để tránh conflict với init
       }
     };
     init();
@@ -86,14 +92,18 @@ export default function RunPage() {
       },
       (error) => {
         if (error.code === 1) {
-          setErrorMessage('Bạn chưa cấp quyền GPS');
+          setErrorMessage('Bạn chưa cấp quyền GPS. Vui lòng cho phép vị trí để tiếp tục.');
           setGpsStatus('Chưa cấp quyền');
         } else {
           setErrorMessage('Lỗi GPS: ' + error.message);
           setGpsStatus('Lỗi');
         }
       },
-      { enableHighAccuracy: true, timeout: 8000 }
+      { 
+        enableHighAccuracy: true, 
+        timeout: 10000, 
+        maximumAge: 0 
+      }
     );
   };
 
@@ -127,10 +137,17 @@ export default function RunPage() {
       },
       (error) => {
         console.error(error);
-        if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
-        else setErrorMessage('Lỗi GPS: ' + error.message);
+        if (error.code === 1) {
+          setErrorMessage('Bạn chưa cấp quyền GPS. Vui lòng cho phép vị trí để tiếp tục.');
+        } else {
+          setErrorMessage('Lỗi GPS: ' + error.message);
+        }
       },
-      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+      { 
+        enableHighAccuracy: true, 
+        timeout: 10000, 
+        maximumAge: 0 
+      }
     );
 
     setWatchId(id);
@@ -138,6 +155,7 @@ export default function RunPage() {
     setMaxSpeed(0);
   };
 
+  // Phần còn lại giữ nguyên 100% như code cũ của bạn
   const stopRun = async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     setIsRunning(false);
@@ -145,7 +163,6 @@ export default function RunPage() {
     const userData = await getCurrentUser();
     if (!userData || !selectedVehicle) return;
 
-    // ==================== LUÔN LƯU RUN VÀO DB (kể cả 0 km/h) ====================
     await supabase.from('runs').insert({
       user_id: userData.id,
       vehicle_id: selectedVehicle.id,
@@ -165,10 +182,8 @@ export default function RunPage() {
       ai_verified: false,
     });
 
-    // ==================== TÍNH RANK THẬT + KỶ LỤC CÁ NHÂN ====================
     const today = new Date().toISOString().split('T')[0];
 
-    // Rank trong khu vực hôm nay (cùng hệ xe) - ĐÃ SỬA
     const { data: todayRuns } = await supabase
       .from('runs')
       .select(`
@@ -187,7 +202,6 @@ export default function RunPage() {
 
     const rankInRegionToday = higherCount + 1;
 
-    // Kỷ lục cá nhân của user này
     const { data: prevBest } = await supabase
       .from('runs')
       .select('max_speed')
@@ -236,6 +250,7 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-10">
+      {/* Phần JSX giữ nguyên hoàn toàn như cũ */}
       <h1 className="text-4xl font-black text-center text-green-500">BẮT ĐẦU RUN</h1>
 
       {selectedVehicle && (
