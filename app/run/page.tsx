@@ -437,17 +437,7 @@ export default function RunPage() {
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
 
-      {selectedVehicle && (
-        <Card className="bg-zinc-900 border-zinc-800 w-full">
-          <CardContent className="p-8 flex items-center gap-6">
-            <Car className="h-8 w-8 text-green-500" />
-            <div>
-              <p className="font-medium text-3xl">{selectedVehicle.nickname}</p>
-              <p className="text-lg text-zinc-400">{selectedVehicle.brand} {selectedVehicle.model}</p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+
 
       {/* CARD TỐC ĐỘ LIVE */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
@@ -494,11 +484,11 @@ export default function RunPage() {
         </div>
       )}
 
-      <div className="pt-3">
+     <div className="flex justify-center -mt-12">
         {!isRunning && !showResult ? (
           <Button 
             onClick={startRun}
-            className="w-full py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl"
+            className="w-[80%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl"
             disabled={!selectedVehicle}
           >
             <Play className="mr-6 h-10 w-10" />
@@ -597,7 +587,7 @@ export default function RunPage() {
       )}
       <div className="text-center py-20">
         <h1 className="text-[2.8rem] md:text-[3.2rem] font-black leading-none tracking-tighter">
-          SPEED RANK VIETNAM
+          81 VIETNAM SPEED RANK 
         </h1>
       </div>
     </div>

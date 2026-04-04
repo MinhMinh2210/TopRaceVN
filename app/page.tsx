@@ -132,7 +132,7 @@ export default function Home() {
         {/* SPEED RANK */}
         <div className="pt-12 px-6 text-center">
           <h1 className="text-[2.8rem] md:text-[3.2rem] font-black leading-none tracking-tighter">
-            SPEED RANK VIETNAM
+            81 VIETNAM SPEED RANK
           </h1>
         </div>
 
