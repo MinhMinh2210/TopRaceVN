@@ -105,6 +105,9 @@ export default function RunPage() {
   const deviceMotionHandlerRef = useRef<((event: DeviceMotionEvent) => void) | null>(null);
   const lastSpeedUpdateRef = useRef(0);
 
+  // ==================== FIX: TRACK PEAK SPEED REAL-TIME (giải quyết top speed thấp hơn ~10% + delay) ====================
+  const maxSpeedRef = useRef(0);
+
   // ==================== DEVICE MOTION & FUSED SPEED ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
     if (event.accelerationIncludingGravity) {
@@ -217,6 +220,7 @@ export default function RunPage() {
     setCurrentRegion('Đang xác định...');
     speedHistory.current = [];
     setMaxSpeed(0);
+    maxSpeedRef.current = 0;                    // ← FIX: reset peak realtime
     setCurrentSpeed(0);
     smoothedSpeedRef.current = 0;
     displayedSpeedRef.current = 0;
@@ -261,8 +265,10 @@ export default function RunPage() {
               speedHistory.current = [];
             }
 
-            if (recordingStartedRef.current && displayedSpeed > maxSpeed) {
-              setMaxSpeed(displayedSpeed);
+            // ==================== FIX: Cập nhật top speed NGAY LẬP TỨC (không chờ state) ====================
+            if (recordingStartedRef.current && displayedSpeed > maxSpeedRef.current) {
+              maxSpeedRef.current = displayedSpeed;
+              setMaxSpeed(displayedSpeed);          // vẫn update UI mượt
             }
 
             if (recordingStartedRef.current) {
@@ -287,7 +293,7 @@ export default function RunPage() {
         setIsStarting(false);
       }
     }, 1000);
-  }, [selectedVehicle, isStarting, calculateFusedSpeed, startDeviceMotion, maxSpeed]);
+  }, [selectedVehicle, isStarting, calculateFusedSpeed, startDeviceMotion]);
 
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
@@ -306,10 +312,13 @@ export default function RunPage() {
     const userData = await getCurrentUser();
     if (!userData || !selectedVehicle) return;
 
+    // ==================== FIX: Lưu maxSpeed chính xác từ ref (không bị thấp hơn 10%) ====================
+    const finalMaxSpeed = maxSpeedRef.current;
+
     await supabase.from('runs').insert({
       user_id: userData.id,
       vehicle_id: selectedVehicle.id,
-      max_speed: maxSpeed,
+      max_speed: finalMaxSpeed,                    // ← dùng giá trị thực tế
       zero_to_sixty: null,
       zero_to_hundred: zeroToHundred,
       distance_to_max_speed: null,
@@ -333,7 +342,7 @@ export default function RunPage() {
       .gte('created_at', today);
 
     const higherCount = (todayRuns || []).filter((run: any) => 
-      run.vehicles?.vehicle_type === selectedVehicle.vehicle_type && run.max_speed > maxSpeed
+      run.vehicles?.vehicle_type === selectedVehicle.vehicle_type && run.max_speed > finalMaxSpeed
     ).length;
 
     const rankInRegionToday = higherCount + 1;
@@ -346,14 +355,14 @@ export default function RunPage() {
       .limit(1);
 
     const previousMax = prevBest?.[0]?.max_speed || 0;
-    const isNewPersonalBest = maxSpeed > previousMax;
-    const personalBestImprovement = isNewPersonalBest ? parseFloat((maxSpeed - previousMax).toFixed(1)) : 0;
+    const isNewPersonalBest = finalMaxSpeed > previousMax;
+    const personalBestImprovement = isNewPersonalBest ? parseFloat((finalMaxSpeed - previousMax).toFixed(1)) : 0;
 
     const now = new Date();
     setRunResult({
-      maxSpeed: maxSpeed,
+      maxSpeed: finalMaxSpeed,                       // ← hiển thị đúng
       zeroToHundred: zeroToHundred,
-      distance: Math.round(maxSpeed * 2.5),
+      distance: Math.round(finalMaxSpeed * 2.5),
       region: currentRegion,
       date: now.toLocaleString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       rankInRegionToday: rankInRegionToday,
@@ -362,7 +371,7 @@ export default function RunPage() {
     });
 
     setShowResult(true);
-  }, [watchId, stopDeviceMotion, selectedVehicle, maxSpeed, currentRegion]);
+  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion]);
 
   const resetRun = useCallback(() => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
@@ -370,6 +379,7 @@ export default function RunPage() {
     setShowResult(false);
     setCurrentSpeed(0);
     setMaxSpeed(0);
+    maxSpeedRef.current = 0;                          // ← reset ref
     setGpsStatus('GPS Checking');
     setGpsAccuracy(null);
     setCurrentRegion('Determining...');
@@ -468,7 +478,7 @@ export default function RunPage() {
       <div className="flex justify-center -mt-2">
         {!isRunning && !showResult ? (
           <Button onClick={startRun} disabled={isStarting} className="w-[90%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl disabled:opacity-50">
-            {isStarting ? <>Loading</> : <><Play className="mr-6 h-10 w-10" />START</>}
+            {isStarting ? <>Đang khởi động...</> : <><Play className="mr-6 h-10 w-10" />START</>}
           </Button>
         ) : isRunning ? (
           <Button onClick={stopRun} className="w-full py-12 text-4xl bg-red-600 hover:bg-red-700 rounded-3xl">
