@@ -24,7 +24,7 @@ type Vehicle = {
   vehicle_type: string;
 };
 
-// ==================== REAL REGION DETECTION (giữ nguyên) ====================
+// ==================== REAL REGION DETECTION ====================
 const getRegionFromCoords = (lat: number, lng: number): string => {
   if (lat >= 10.5 && lat <= 11.1 && lng >= 106.3 && lng <= 107.0) return 'TP.HCM';
   if (lat >= 20.8 && lat <= 21.3 && lng >= 105.6 && lng <= 106.1) return 'Hà Nội';
@@ -35,7 +35,7 @@ const getRegionFromCoords = (lat: number, lng: number): string => {
   return 'Việt Nam';
 };
 
-// ==================== GPS STATUS 6 CẤP ĐỘ (giữ nguyên) ====================
+// ==================== GPS STATUS 6 CẤP ĐỘ ====================
 const getGPSStatusInfo = (accuracy: number, speedAvailable: boolean = false) => {
   if (!accuracy || accuracy > 10000) return { text: 'Không có tín hiệu 📡', color: 'text-red-400' };
   if (accuracy < 5 && speedAvailable) return { text: 'VŨ TRỤ SIÊU VIP PRO 🌌', color: 'text-emerald-400' };
@@ -77,20 +77,66 @@ export default function RunPage() {
   const resultRef = useRef<HTMLDivElement>(null);
   const speedHistory = useRef<{ timestamp: number; speed: number }[]>([]);
 
-  // ==================== COUNTDOWN + RECORDING FLAG ====================
+  // ==================== COUNTDOWN + RECORDING ====================
   const [countdown, setCountdown] = useState<number | null>(null);
   const recordingStartedRef = useRef(false);
 
-  // ==================== GOOGLE-STYLE SENSOR FUSION SIMULATION ====================
-  // Ưu tiên coords.speed (đã được OS + GNSS fusion) + EMA smoothing nhẹ
-  // Đây chính là cách Google Maps xử lý tốc độ trên Android/iOS (mượt, ít nhiễu, phản ứng nhanh)
+  // ==================== SENSOR FUSION REFS ====================
   const smoothedSpeedRef = useRef(0);
 
-  const calculateGoogleStyleSpeed = (rawSpeed: number): number => {
-    // EMA (Exponential Moving Average) – mô phỏng sensor fusion smoothing của Google
-    // Giá trị alpha = 0.65 cho cảm giác cực mượt, giống Google Maps
+  // ==================== DEVICE MOTION (Accel + Gyro) ====================
+  const accelerationRef = useRef({ x: 0, y: 0, z: 0 });
+  const lastMotionTimeRef = useRef(0);
+  const deviceMotionHandlerRef = useRef<((event: DeviceMotionEvent) => void) | null>(null);
+
+  const handleDeviceMotion = (event: DeviceMotionEvent) => {
+    if (event.accelerationIncludingGravity) {
+      accelerationRef.current = {
+        x: event.accelerationIncludingGravity.x ?? 0,
+        y: event.accelerationIncludingGravity.y ?? 0,
+        z: event.accelerationIncludingGravity.z ?? 0,
+      };
+    }
+  };
+
+  const startDeviceMotion = () => {
+    if ('DeviceMotionEvent' in window && !deviceMotionHandlerRef.current) {
+      deviceMotionHandlerRef.current = handleDeviceMotion;
+      window.addEventListener('devicemotion', handleDeviceMotion, { passive: true });
+      lastMotionTimeRef.current = Date.now();
+    }
+  };
+
+  const stopDeviceMotion = () => {
+    if (deviceMotionHandlerRef.current) {
+      window.removeEventListener('devicemotion', deviceMotionHandlerRef.current);
+      deviceMotionHandlerRef.current = null;
+    }
+  };
+
+  // ==================== FUSED SPEED (GPS + DeviceMotion) ====================
+  const calculateFusedSpeed = (rawGpsSpeedMs: number | null | undefined): number => {
+    const now = Date.now();
+    const dt = (now - lastMotionTimeRef.current) / 1000;
+    lastMotionTimeRef.current = now;
+
+    const rawGpsKmh = (rawGpsSpeedMs ?? 0) * 3.6;
+
+    // Complementary filter với accelerometer
+    const accel = accelerationRef.current;
+    const horizontalAccel = Math.sqrt(accel.x * accel.x + accel.y * accel.y);
+
+    let fusedSpeed = rawGpsKmh;
+
+    if (dt > 0 && dt < 0.8) {
+      const deltaV = horizontalAccel * dt * 3.6;
+      fusedSpeed = rawGpsKmh * 0.65 + (smoothedSpeedRef.current + deltaV) * 0.35;
+    }
+
+    // EMA smoothing (giống Google Maps)
     const alpha = 0.65;
-    smoothedSpeedRef.current = smoothedSpeedRef.current * (1 - alpha) + rawSpeed * alpha;
+    smoothedSpeedRef.current = smoothedSpeedRef.current * (1 - alpha) + fusedSpeed * alpha;
+
     return Math.max(0, Math.round(smoothedSpeedRef.current));
   };
 
@@ -185,36 +231,25 @@ export default function RunPage() {
 
             setCurrentRegion(getRegionFromCoords(latitude, longitude));
 
-            // ====================== GPS MÔ PHỎNG GOOGLE ======================
-            // Ưu tiên tốc độ từ GNSS (coords.speed) – đã được hệ điều hành fusion với IMU
-            let rawSpeed = gpsSpeedMs !== null && gpsSpeedMs !== undefined 
-              ? gpsSpeedMs * 3.6 
-              : 0;
-
+            let rawSpeed = gpsSpeedMs !== null && gpsSpeedMs !== undefined ? gpsSpeedMs * 3.6 : 0;
             if (rawSpeed < 3) rawSpeed = 0;
 
-            // Áp dụng sensor-fusion-style smoothing (EMA) – giống thuật toán Google Maps
-            const targetSpeed = calculateGoogleStyleSpeed(rawSpeed);
+            const targetSpeed = calculateFusedSpeed(gpsSpeedMs);
 
-            // Bắt đầu ghi dữ liệu khi xe thực sự chạy
             const shouldRecord = targetSpeed >= 10;
             if (shouldRecord && !recordingStartedRef.current) {
               recordingStartedRef.current = true;
               speedHistory.current = [];
             }
 
-            // Update tốc độ live (có inertia nhẹ để mượt hơn)
             setCurrentSpeed(prev => Math.round(prev * 0.4 + targetSpeed * 0.6));
 
-            // Max speed
             if (targetSpeed > maxSpeed) setMaxSpeed(targetSpeed);
 
-            // Ghi history cho tính 0-100 km/h
             if (recordingStartedRef.current) {
               speedHistory.current.push({ timestamp: now, speed: targetSpeed });
             }
 
-            // GPS status
             const speedAvailable = gpsSpeedMs !== null && gpsSpeedMs !== undefined;
             const info = getGPSStatusInfo(accuracy, speedAvailable);
             setGpsStatus(info.text);
@@ -224,21 +259,19 @@ export default function RunPage() {
             if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
             else setErrorMessage('Lỗi GPS: ' + error.message);
           },
-          { 
-            enableHighAccuracy: true, 
-            timeout: 3000, 
-            maximumAge: 0 
-          }
+          { enableHighAccuracy: true, timeout: 3000, maximumAge: 0 }
         );
 
         setWatchId(id);
         setIsRunning(true);
+        startDeviceMotion();
       }
     }, 1000);
   };
 
   const stopRun = async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
+    stopDeviceMotion();
     setIsRunning(false);
     setCountdown(null);
 
@@ -318,6 +351,7 @@ export default function RunPage() {
 
   const resetRun = () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
+    stopDeviceMotion();
     setShowResult(false);
     setCurrentSpeed(0);
     setMaxSpeed(0);
@@ -363,7 +397,7 @@ export default function RunPage() {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP - GIAO DIỆN RUN (UI GIỮ NGUYÊN 100%) ====================
+  // ==================== ĐÃ ĐĂNG NHẬP - GIAO DIỆN RUN ====================
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
 
