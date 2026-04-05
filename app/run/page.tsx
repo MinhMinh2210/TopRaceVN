@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Play, Square, RotateCcw, AlertCircle, Car } from 'lucide-react';
+import { Play, Square, RotateCcw, AlertCircle, Car, Download } from 'lucide-react';
 
 type Vehicle = {
   id: number;
@@ -48,14 +48,14 @@ const getRegionFromCoords = (lat: number, lng: number): string => {
 
 // ==================== GPS STATUS ====================
 const getGPSStatusInfo = (accuracy: number, speedAvailable: boolean = false) => {
-  if (!accuracy || accuracy > 10000) return { text: 'Không có tín hiệu 📡', color: 'text-red-400' };
-  if (accuracy < 5 && speedAvailable) return { text: 'VŨ TRỤ SIÊU VIP PRO 🌌', color: 'text-emerald-400' };
-  if (accuracy < 5) return { text: 'SIÊU CHÍNH XÁC VIP 🌟', color: 'text-emerald-400' };
-  if (accuracy < 10) return { text: 'SIÊU CHÍNH XÁC 🔥', color: 'text-cyan-400' };
-  if (accuracy < 20) return { text: 'Tuyệt vời ✅', color: 'text-green-400' };
-  if (accuracy < 35) return { text: 'Tốt 👍', color: 'text-lime-400' };
-  if (accuracy < 60) return { text: 'Trung bình ⚠️', color: 'text-yellow-400' };
-  return { text: 'Yếu 📡', color: 'text-orange-400' };
+  if (!accuracy || accuracy > 10000) return { text: 'NO SIGNAL 📡', color: 'text-red-400' };
+  if (accuracy < 5 && speedAvailable) return { text: 'Universe 🌌', color: 'text-emerald-400' };
+  if (accuracy < 5) return { text: ' 🌟', color: 'text-emerald-400' };
+  if (accuracy < 10) return { text: 'On Fire 🔥', color: 'text-cyan-400' };
+  if (accuracy < 20) return { text: 'Excellent ✅', color: 'text-green-400' };
+  if (accuracy < 35) return { text: 'Good 👍', color: 'text-lime-400' };
+  if (accuracy < 60) return { text: 'AVG ⚠️', color: 'text-yellow-400' };
+  return { text: 'Weak 📡', color: 'text-orange-400' };
 };
 
 export default function RunPage() {
@@ -67,7 +67,7 @@ export default function RunPage() {
   const [isRunning, setIsRunning] = useState(false);
   const [currentSpeed, setCurrentSpeed] = useState(0);
   const [maxSpeed, setMaxSpeed] = useState(0);
-  const [gpsStatus, setGpsStatus] = useState('Chưa kiểm tra');
+  const [gpsStatus, setGpsStatus] = useState('GPS Checking');
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [watchId, setWatchId] = useState<number | null>(null);
@@ -86,8 +86,8 @@ export default function RunPage() {
     isNewPersonalBest: false,
   });
 
-  const [isCheckingGPS, setIsCheckingGPS] = useState(false);   // ← GPS loading
-  const [isStarting, setIsStarting] = useState(false);         // ← Ngăn spam START
+  const [isCheckingGPS, setIsCheckingGPS] = useState(false);
+  const [isStarting, setIsStarting] = useState(false);
 
   const resultRef = useRef<HTMLDivElement>(null);
   const speedHistory = useRef<{ timestamp: number; speed: number }[]>([]);
@@ -104,7 +104,7 @@ export default function RunPage() {
   const deviceMotionHandlerRef = useRef<((event: DeviceMotionEvent) => void) | null>(null);
   const lastSpeedUpdateRef = useRef(0);
 
-  // ==================== DEVICE MOTION & FUSED SPEED (giữ nguyên) ====================
+  // ==================== DEVICE MOTION & FUSED SPEED ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
     if (event.accelerationIncludingGravity) {
       accelerationRef.current = {
@@ -182,18 +182,15 @@ export default function RunPage() {
     });
   }, []);
 
-  // ==================== GPS CHECKING (động trên nút) ====================
   const checkGPS = useCallback(async () => {
     setIsCheckingGPS(true);
     setErrorMessage('');
-
     if (!navigator.geolocation) {
       setErrorMessage('Thiết bị không hỗ trợ GPS');
       setGpsStatus('Không hỗ trợ GPS');
       setIsCheckingGPS(false);
       return;
     }
-
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { accuracy, speed } = position.coords;
@@ -213,7 +210,6 @@ export default function RunPage() {
 
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting) return;
-
     setIsStarting(true);
     setErrorMessage('');
     setShowResult(false);
@@ -287,26 +283,23 @@ export default function RunPage() {
         setWatchId(id);
         setIsRunning(true);
         startDeviceMotion();
-        setIsStarting(false);   // cho phép reset lại sau khi bắt đầu
+        setIsStarting(false);
       }
     }, 1000);
   }, [selectedVehicle, isStarting, calculateFusedSpeed, startDeviceMotion, maxSpeed]);
 
-  const stopRun = useCallback(async () => { /* giữ nguyên logic cũ */ 
+  const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
     setIsRunning(false);
     setCountdown(null);
     setIsStarting(false);
 
-    // ... (toàn bộ phần stopRun cũ của bạn, mình giữ nguyên 100%)
     let zeroToHundred = 0;
     if (speedHistory.current.length >= 2) {
       const sorted = [...speedHistory.current].sort((a, b) => a.timestamp - b.timestamp);
       const reach100 = sorted.find(entry => entry.speed >= 100);
-      if (reach100) {
-        zeroToHundred = parseFloat(((reach100.timestamp - sorted[0].timestamp) / 1000).toFixed(1));
-      }
+      if (reach100) zeroToHundred = parseFloat(((reach100.timestamp - sorted[0].timestamp) / 1000).toFixed(1));
     }
 
     const userData = await getCurrentUser();
@@ -368,10 +361,6 @@ export default function RunPage() {
     });
 
     setShowResult(true);
-
-    setTimeout(() => {
-      resultRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
-    }, 300);
   }, [watchId, stopDeviceMotion, selectedVehicle, maxSpeed, currentRegion]);
 
   const resetRun = useCallback(() => {
@@ -390,6 +379,21 @@ export default function RunPage() {
     displayedSpeedRef.current = 0;
     setIsStarting(false);
   }, [watchId, stopDeviceMotion]);
+
+  const downloadResult = useCallback(() => {
+    const data = {
+      ...runResult,
+      vehicle: selectedVehicle,
+      timestamp: new Date().toISOString(),
+    };
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `TopRaceVN_Run_${new Date().toISOString().slice(0,19)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [runResult, selectedVehicle]);
 
   // ==================== CHƯA ĐĂNG NHẬP + LOADING ====================
   if (isAuthLoading) {
@@ -439,7 +443,7 @@ export default function RunPage() {
         </CardContent>
       </Card>
 
-      {/* NÚT GPS CHECKING ĐỘNG (đã tích hợp status) */}
+      {/* NÚT GPS CHECKING ĐỘNG */}
       <Button
         onClick={checkGPS}
         disabled={isCheckingGPS}
@@ -470,14 +474,7 @@ export default function RunPage() {
             disabled={isStarting}
             className="w-[90%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl disabled:opacity-50"
           >
-            {isStarting ? (
-              <>Đang khởi động...</>
-            ) : (
-              <>
-                <Play className="mr-6 h-10 w-10" />
-                START
-              </>
-            )}
+            {isStarting ? <>Loading</> : <><Play className="mr-6 h-10 w-10" />START</>}
           </Button>
         ) : isRunning ? (
           <Button onClick={stopRun} className="w-full py-12 text-4xl bg-red-600 hover:bg-red-700 rounded-3xl">
@@ -487,7 +484,6 @@ export default function RunPage() {
         ) : null}
       </div>
 
-      {/* Dialog chọn xe và Result giữ nguyên */}
       <Dialog>
         <DialogTrigger asChild>
           <Button variant="outline" className="w-full mt-3 py-8 text-2xl">
@@ -515,17 +511,30 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ==================== BẢNG KẾT QUẢ (THÔNG BÁO HIỂN THỊ) ==================== */}
       {showResult && (
-        <div ref={resultRef} className="pt-8">
-          <Card className="bg-zinc-900 border-zinc-800 w-full">
-            <CardContent className="p-10 text-center space-y-8">
-              <h2 className="text-3xl font-bold text-green-500">End!</h2>
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4">
+          <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto scale-95 transition-all">
+            <CardContent className="p-8 space-y-6">   {/* Giảm padding ~20% */}
+              <div className="flex items-center justify-between">
+                {/* Icon Download góc trái */}
+                <button
+                  onClick={downloadResult}
+                  className="flex items-center gap-2 text-zinc-400 hover:text-green-400 transition-colors"
+                >
+                  <Download className="w-5 h-5" />
+                  <span className="text-sm font-medium">Tải dữ liệu</span>
+                </button>
+                <h2 className="text-3xl font-bold text-green-500">TopRaceVN</h2>
+              </div>
+
               <div>
                 <p className="text-zinc-400 text-base">Top Speed cao nhất</p>
                 <p className="text-8xl font-black text-green-500">{runResult.maxSpeed}</p>
                 <p className="text-zinc-400 text-2xl">km/h</p>
                 <p className="text-xs text-zinc-500 mt-3">{runResult.date}</p>
               </div>
+
               <div className="grid grid-cols-2 gap-8 border-t border-zinc-800 pt-8">
                 <div>
                   <p className="text-zinc-400 text-sm">0 - 100 km/h</p>
@@ -538,9 +547,11 @@ export default function RunPage() {
                   <p className="font-medium text-2xl">{runResult.region}</p>
                 </div>
               </div>
+
               <div>
                 <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
               </div>
+
               <div className="space-y-3 text-left border-t border-zinc-800 pt-6">
                 {runResult.isNewPersonalBest && (
                   <div className="flex justify-between items-center bg-zinc-800 rounded-2xl px-5 py-4">
@@ -549,6 +560,7 @@ export default function RunPage() {
                   </div>
                 )}
               </div>
+
               <div className="flex gap-4 pt-4">
                 <Button onClick={resetRun} variant="outline" className="flex-1 py-6 text-base">
                   <RotateCcw className="mr-2 h-5 w-5" />
@@ -562,6 +574,7 @@ export default function RunPage() {
           </Card>
         </div>
       )}
+
       <div className="text-center py-20">
         <h1 className="text-[2.8rem] md:text-[3.2rem] font-black leading-none tracking-tighter">
           81 VIETNAM SPEED RANK 
