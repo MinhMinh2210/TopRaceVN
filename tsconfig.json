@@ -18,12 +18,9 @@
         "name": "next"
       }
     ],
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./*"]
-    },
-    // ✅ Thêm dòng này để tắt lỗi TypeScript 6.0+
-    "ignoreDeprecations": "6.0"
+    }
   },
   "include": [
     "next-env.d.ts",
