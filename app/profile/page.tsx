@@ -211,7 +211,7 @@ export default function MyProfilePage() {
 
             <Button
               onClick={handleGoogleLogin}
-              className="w-[125%] mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
+              className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
             >
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Đăng nhập bằng Google
@@ -232,7 +232,7 @@ export default function MyProfilePage() {
 
   // ==================== ĐÃ ĐĂNG NHẬP - PROFILE ====================
   return (
-    <div className="space-y-6 pb-20 px-4">
+    <div className="space-y-6 pb-20 px-4 max-w-2xl mx-auto">
       <div className="flex flex-col items-center text-center pt-4">
         <Avatar className="w-28 h-28 mb-4 border-4 border-green-500">
           <AvatarImage src={profile?.avatar_url || ''} />
