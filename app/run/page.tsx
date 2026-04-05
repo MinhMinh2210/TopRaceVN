@@ -110,7 +110,16 @@ export default function RunPage() {
 
   // ==================== DEVICE MOTION & FUSED SPEED ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
-    if (event.accelerationIncludingGravity) {
+    // ✅ SỬA Ở ĐÂY: Dùng acceleration (linear) thay vì accelerationIncludingGravity
+    // → Android không còn bị nhảy tốc độ giả khi dựng đứng điện thoại
+    if (event.acceleration) {
+      accelerationRef.current = {
+        x: event.acceleration.x ?? 0,
+        y: event.acceleration.y ?? 0,
+        z: event.acceleration.z ?? 0,
+      };
+    } else if (event.accelerationIncludingGravity) {
+      // fallback cho một số thiết bị cũ (rất hiếm)
       accelerationRef.current = {
         x: event.accelerationIncludingGravity.x ?? 0,
         y: event.accelerationIncludingGravity.y ?? 0,
@@ -145,14 +154,19 @@ export default function RunPage() {
     isCalibratedRef.current = isCalibrated;
 
     let fusedSpeed = rawGpsKmh;
+
     if (isCalibrated) {
       const accel = accelerationRef.current;
+      // ✅ TỐI ƯU: horizontalAccel giờ chính xác hơn vì đã dùng linear acceleration
       const horizontalAccel = Math.sqrt(accel.x * accel.x + accel.y * accel.y);
       const deltaV = horizontalAccel * dt * 3.6;
-      fusedSpeed = rawGpsKmh * 0.72 + (smoothedSpeedRef.current + deltaV) * 0.28;
+
+      // ✅ TỐI ƯU: điều chỉnh weight nhẹ để mượt và ổn định hơn trên Android
+      fusedSpeed = rawGpsKmh * 0.75 + (smoothedSpeedRef.current + deltaV) * 0.25;
     }
 
-    const alpha = isCalibrated ? 0.68 : 0.45;
+    // ✅ TỐI ƯU: alpha mượt hơn, giảm lag
+    const alpha = isCalibrated ? 0.72 : 0.48;
     smoothedSpeedRef.current = smoothedSpeedRef.current * (1 - alpha) + fusedSpeed * alpha;
 
     let finalSpeed = Math.max(0, Math.round(smoothedSpeedRef.current));
@@ -220,7 +234,7 @@ export default function RunPage() {
     setCurrentRegion('Đang xác định...');
     speedHistory.current = [];
     setMaxSpeed(0);
-    maxSpeedRef.current = 0;                    // ← FIX: reset peak realtime
+    maxSpeedRef.current = 0;
     setCurrentSpeed(0);
     smoothedSpeedRef.current = 0;
     displayedSpeedRef.current = 0;
@@ -265,10 +279,9 @@ export default function RunPage() {
               speedHistory.current = [];
             }
 
-            // ==================== FIX: Cập nhật top speed NGAY LẬP TỨC (không chờ state) ====================
             if (recordingStartedRef.current && displayedSpeed > maxSpeedRef.current) {
               maxSpeedRef.current = displayedSpeed;
-              setMaxSpeed(displayedSpeed);          // vẫn update UI mượt
+              setMaxSpeed(displayedSpeed);
             }
 
             if (recordingStartedRef.current) {
@@ -312,13 +325,12 @@ export default function RunPage() {
     const userData = await getCurrentUser();
     if (!userData || !selectedVehicle) return;
 
-    // ==================== FIX: Lưu maxSpeed chính xác từ ref (không bị thấp hơn 10%) ====================
     const finalMaxSpeed = maxSpeedRef.current;
 
     await supabase.from('runs').insert({
       user_id: userData.id,
       vehicle_id: selectedVehicle.id,
-      max_speed: finalMaxSpeed,                    // ← dùng giá trị thực tế
+      max_speed: finalMaxSpeed,
       zero_to_sixty: null,
       zero_to_hundred: zeroToHundred,
       distance_to_max_speed: null,
@@ -360,7 +372,7 @@ export default function RunPage() {
 
     const now = new Date();
     setRunResult({
-      maxSpeed: finalMaxSpeed,                       // ← hiển thị đúng
+      maxSpeed: finalMaxSpeed,
       zeroToHundred: zeroToHundred,
       distance: Math.round(finalMaxSpeed * 2.5),
       region: currentRegion,
@@ -379,7 +391,7 @@ export default function RunPage() {
     setShowResult(false);
     setCurrentSpeed(0);
     setMaxSpeed(0);
-    maxSpeedRef.current = 0;                          // ← reset ref
+    maxSpeedRef.current = 0;
     setGpsStatus('GPS Checking');
     setGpsAccuracy(null);
     setCurrentRegion('Determining...');
