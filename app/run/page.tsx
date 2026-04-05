@@ -122,7 +122,6 @@ export default function RunPage() {
 
     const rawGpsKmh = (rawGpsSpeedMs ?? 0) * 3.6;
 
-    // ==================== CALIBRATION PHASE (5 giây đầu) ====================
     const timeSinceStart = now - calibrationStartRef.current;
     const isCalibrated = timeSinceStart > 5000;
     isCalibratedRef.current = isCalibrated;
@@ -130,37 +129,40 @@ export default function RunPage() {
     let fusedSpeed = rawGpsKmh;
 
     if (isCalibrated) {
-      // Chỉ fusion sau khi calibrate
       const accel = accelerationRef.current;
       const horizontalAccel = Math.sqrt(accel.x * accel.x + accel.y * accel.y);
       const deltaV = horizontalAccel * dt * 3.6;
-
       fusedSpeed = rawGpsKmh * 0.72 + (smoothedSpeedRef.current + deltaV) * 0.28;
     }
 
-    // EMA smoothing
-    const alpha = isCalibrated ? 0.68 : 0.45; // mượt hơn lúc calibrate
+    const alpha = isCalibrated ? 0.68 : 0.45;
     smoothedSpeedRef.current = smoothedSpeedRef.current * (1 - alpha) + fusedSpeed * alpha;
 
-    // STRONG DEADZONE - fix lỗi không về 0
     let finalSpeed = Math.max(0, Math.round(smoothedSpeedRef.current));
     if (finalSpeed < 5) finalSpeed = 0;
 
     return finalSpeed;
   };
 
-  // ==================== INIT USER ====================
+  // ==================== INIT USER (ĐÃ FIX LỖI TS) ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
       setUser(u);
+
       if (u) {
         const { data } = await supabase
           .from('vehicles')
           .select('id, nickname, brand, model, vehicle_type')
           .eq('user_id', u.id);
-        setVehicles(data || []);
-        if (data?.length > 0 && !selectedVehicle) setSelectedVehicle(data[0]);
+        
+        // ✅ FIX: Xử lý null/undefined an toàn
+        const vehicleList = data ?? [];
+        setVehicles(vehicleList);
+
+        if (vehicleList.length > 0 && !selectedVehicle) {
+          setSelectedVehicle(vehicleList[0]);
+        }
       }
     };
     init();
@@ -176,11 +178,13 @@ export default function RunPage() {
   const checkGPS = async () => {
     setErrorMessage('');
     setGpsStatus('Đang kiểm tra...');
+
     if (!navigator.geolocation) {
       setErrorMessage('Thiết bị không hỗ trợ GPS');
       setGpsStatus('Không có tín hiệu 📡');
       return;
     }
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { accuracy, speed } = position.coords;
@@ -202,7 +206,6 @@ export default function RunPage() {
       return;
     }
 
-    // RESET TOÀN BỘ
     setErrorMessage('');
     setShowResult(false);
     setCurrentRegion('Đang xác định...');
@@ -223,7 +226,7 @@ export default function RunPage() {
 
       if (count <= 0) {
         clearInterval(countdownInterval);
-        calibrationStartRef.current = Date.now();   // Bắt đầu calibration
+        calibrationStartRef.current = Date.now();
 
         const id = navigator.geolocation.watchPosition(
           (position) => {
@@ -234,7 +237,6 @@ export default function RunPage() {
 
             const targetSpeed = calculateFusedSpeed(gpsSpeedMs);
 
-            // Chỉ ghi dữ liệu sau khi calibrate và xe thật sự chạy
             const shouldRecord = isCalibratedRef.current && targetSpeed >= 8;
             if (shouldRecord && !recordingStartedRef.current) {
               recordingStartedRef.current = true;
@@ -307,7 +309,6 @@ export default function RunPage() {
       ai_verified: false,
     });
 
-    // Phần rank & personal best giữ nguyên như cũ
     const today = new Date().toISOString().split('T')[0];
     const { data: todayRuns } = await supabase
       .from('runs')
@@ -390,7 +391,7 @@ export default function RunPage() {
     );
   }
 
-  // ==================== GIAO DIỆN RUN (GIỮ NGUYÊN) ====================
+  // ==================== GIAO DIỆN RUN ====================
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
       {/* CARD TỐC ĐỘ LIVE */}
@@ -458,7 +459,12 @@ export default function RunPage() {
           </DialogHeader>
           <div className="space-y-3 max-h-80 overflow-auto py-4">
             {vehicles.map((v) => (
-              <Button key={v.id} variant={selectedVehicle?.id === v.id ? "default" : "outline"} className="w-full justify-start text-2xl py-7" onClick={() => setSelectedVehicle(v)}>
+              <Button
+                key={v.id}
+                variant={selectedVehicle?.id === v.id ? "default" : "outline"}
+                className="w-full justify-start text-2xl py-7"
+                onClick={() => setSelectedVehicle(v)}
+              >
                 {v.nickname} — {v.brand} {v.model}
               </Button>
             ))}
