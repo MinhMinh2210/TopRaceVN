@@ -468,7 +468,7 @@ export default function RunPage() {
       <div className="flex justify-center -mt-2">
         {!isRunning && !showResult ? (
           <Button onClick={startRun} disabled={isStarting} className="w-[90%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl disabled:opacity-50">
-            {isStarting ? <>Đang khởi động...</> : <><Play className="mr-6 h-10 w-10" />START</>}
+            {isStarting ? <>Loading</> : <><Play className="mr-6 h-10 w-10" />START</>}
           </Button>
         ) : isRunning ? (
           <Button onClick={stopRun} className="w-full py-12 text-4xl bg-red-600 hover:bg-red-700 rounded-3xl">
