@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import { Car, Trophy, Clock, Gauge, User } from 'lucide-react';
 
@@ -32,7 +32,7 @@ export default function Home() {
   const [bestRun, setBestRun] = useState<Run | null>(null);
   const [currentRank, setCurrentRank] = useState<number | null>(null);
   const [runCountToday, setRunCountToday] = useState(0);
-  const [loading, setLoading] = useState(true);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [currentSlide, setCurrentSlide] = useState(0);
 
   const slides = [
@@ -62,7 +62,7 @@ export default function Home() {
     },
   ];
 
-  // Tự động chuyển slide
+  // ==================== CAROUSEL AUTO SLIDE ====================
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % slides.length);
@@ -70,65 +70,79 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  useEffect(() => {
-    const init = async () => {
-      const u = await getCurrentUser();
-      if (!u) {
-        setLoading(false);
-        return;
-      }
+  // ==================== INIT USER + DASHBOARD DATA ====================
+  const init = useCallback(async () => {
+    const u = await getCurrentUser();
+    setUser(u);
 
-      setUser(u);
-      const userId = u.id;
+    if (!u) {
+      setIsAuthLoading(false);
+      return;
+    }
 
-      const { data: vehicleData } = await supabase
-        .from('vehicles')
-        .select('*')
-        .eq('user_id', userId)
-        .limit(1)
-        .single();
-      setVehicle(vehicleData);
+    const userId = u.id;
 
-      const { data: bestRunData } = await supabase
-        .from('runs')
-        .select('max_speed, zero_to_hundred, region')
-        .eq('user_id', userId)
-        .order('max_speed', { ascending: false })
-        .limit(1)
-        .single();
-      setBestRun(bestRunData);
+    // Fetch vehicle
+    const { data: vehicleData } = await supabase
+      .from('vehicles')
+      .select('*')
+      .eq('user_id', userId)
+      .limit(1)
+      .single();
+    setVehicle(vehicleData);
 
-      if (bestRunData?.max_speed) {
-        const { count } = await supabase
-          .from('runs')
-          .select('*', { count: 'exact', head: true })
-          .gt('max_speed', bestRunData.max_speed);
-        setCurrentRank((count || 0) + 1);
-      }
+    // Fetch best run
+    const { data: bestRunData } = await supabase
+      .from('runs')
+      .select('max_speed, zero_to_hundred, region')
+      .eq('user_id', userId)
+      .order('max_speed', { ascending: false })
+      .limit(1)
+      .single();
+    setBestRun(bestRunData);
 
-      const today = new Date().toISOString().split('T')[0];
-      const { count: todayCount } = await supabase
+    // Calculate current rank (global)
+    if (bestRunData?.max_speed) {
+      const { count } = await supabase
         .from('runs')
         .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .gte('created_at', today);
-      setRunCountToday(todayCount || 0);
+        .gt('max_speed', bestRunData.max_speed);
+      setCurrentRank((count || 0) + 1);
+    }
 
-      setLoading(false);
-    };
+    // Count runs today
+    const today = new Date().toISOString().split('T')[0];
+    const { count: todayCount } = await supabase
+      .from('runs')
+      .select('*', { count: 'exact', head: true })
+      .eq('user_id', userId)
+      .gte('created_at', today);
+    setRunCountToday(todayCount || 0);
 
-    init();
+    setIsAuthLoading(false);
   }, []);
 
-  if (loading) {
-    return <div className="text-center py-20">Đang tải dữ liệu...</div>;
+  useEffect(() => {
+    init();
+  }, [init]);
+
+  const handleGoogleLogin = useCallback(async () => {
+    await loginWithGoogle();
+  }, []);
+
+  // ==================== LOADING ====================
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-green-500">
+        Đang kiểm tra đăng nhập...
+      </div>
+    );
   }
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
     return (
       <div className="min-h-screen bg-zinc-950 text-white overflow-hidden pb-20">
-
         {/* SPEED RANK */}
         <div className="pt-12 px-6 text-center">
           <h1 className="text-[2.8rem] md:text-[3.2rem] font-black leading-none tracking-tighter">
@@ -136,7 +150,7 @@ export default function Home() {
           </h1>
         </div>
 
-        {/* CAROUSEL CARD - Chuyển cảnh mượt */}
+        {/* CAROUSEL CARD */}
         <Card className="bg-zinc-900 border-zinc-800 mx-4 mt-10 max-w-[340px] mx-auto shadow-2xl">
           <CardContent className="p-8">
             <div className="relative h-[320px] overflow-hidden">
@@ -172,7 +186,7 @@ export default function Home() {
         {/* Nút Google */}
         <div className="px-6 mt-12">
           <Button
-            onClick={loginWithGoogle}
+            onClick={handleGoogleLogin}
             size="lg"
             className="w-full py-8 text-xl font-semibold bg-white text-black hover:bg-zinc-100 rounded-3xl flex items-center justify-center gap-3"
           >
@@ -213,10 +227,10 @@ export default function Home() {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP - DASHBOARD CŨ ====================
+  // ==================== ĐÃ ĐĂNG NHẬP - DASHBOARD ====================
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-black"> VietNam Racingboy</h1>
+      <h1 className="text-3xl font-black">VietNam Racingboy</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
         <Card className="bg-zinc-900 border-zinc-800">

@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 import { logout } from '@/app/features/auth/logout';
@@ -46,7 +46,7 @@ export default function MyProfilePage() {
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [runsHistory, setRunsHistory] = useState<RunHistory[]>([]);
   const [stats, setStats] = useState({ runs: 0, bestSpeed: 0, rank: 0 });
-  const [loading, setLoading] = useState(true);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState<Profile>({ nickname: '', full_name: '', avatar_url: '', bio: '' });
@@ -56,110 +56,114 @@ export default function MyProfilePage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedRun, setSelectedRun] = useState<RunHistory | null>(null);
 
-  // ==================== KIỂM TRA ĐĂNG NHẬP & LOAD DATA ====================
-  useEffect(() => {
-    const loadData = async () => {
-      const currentUser = await getCurrentUser();
-      setUser(currentUser);
+  // ==================== INIT AUTH + LOAD ALL DATA ====================
+  const loadAllData = useCallback(async () => {
+    const currentUser = await getCurrentUser();
+    setUser(currentUser);
 
-      if (!currentUser) {
-        setLoading(false);
-        return;
-      }
+    if (!currentUser) {
+      setIsAuthLoading(false);
+      return;
+    }
 
-      // Load profile
-      const { data: prof } = await supabase
-        .from('profiles')
-        .select('nickname, full_name, avatar_url, bio')
-        .eq('id', currentUser.id)
-        .single();
+    // Load profile
+    const { data: prof } = await supabase
+      .from('profiles')
+      .select('nickname, full_name, avatar_url, bio')
+      .eq('id', currentUser.id)
+      .single();
 
-      setProfile(prof);
-      setEditForm(prof || { nickname: '', full_name: '', avatar_url: '', bio: '' });
+    setProfile(prof);
+    setEditForm(prof || { nickname: '', full_name: '', avatar_url: '', bio: '' });
 
-      // Load vehicles
-      const { data: veh } = await supabase
-        .from('vehicles')
-        .select('*')
-        .eq('user_id', currentUser.id);
-      setVehicles(veh || []);
+    // Load vehicles
+    const { data: veh } = await supabase
+      .from('vehicles')
+      .select('*')
+      .eq('user_id', currentUser.id);
+    setVehicles(veh || []);
 
-      // Load run history
-      const { data: history } = await supabase
-        .from('runs')
-        .select(`
-          id,
-          max_speed,
-          zero_to_hundred,
-          created_at,
-          region,
-          vehicles (nickname, vehicle_type)
-        `)
-        .eq('user_id', currentUser.id)
-        .order('created_at', { ascending: false })
-        .limit(10);
+    // Load run history
+    const { data: history } = await supabase
+      .from('runs')
+      .select(`
+        id,
+        max_speed,
+        zero_to_hundred,
+        created_at,
+        region,
+        vehicles (nickname, vehicle_type)
+      `)
+      .eq('user_id', currentUser.id)
+      .order('created_at', { ascending: false })
+      .limit(10);
 
-      const formatted = (history || []).map((r: any) => ({
-        id: r.id,
-        max_speed: r.max_speed,
-        zero_to_hundred: r.zero_to_hundred,
-        created_at: r.created_at,
-        region: r.region || 'Không xác định',
-        vehicles: r.vehicles?.[0] || null,
-      }));
+    const formatted = (history || []).map((r: any) => ({
+      id: r.id,
+      max_speed: r.max_speed,
+      zero_to_hundred: r.zero_to_hundred,
+      created_at: r.created_at,
+      region: r.region || 'Không xác định',
+      vehicles: r.vehicles?.[0] || null,
+    }));
 
-      setRunsHistory(formatted);
+    setRunsHistory(formatted);
 
-      // Stats
-      const { count } = await supabase
-        .from('runs')
-        .select('*', { count: 'exact' })
-        .eq('user_id', currentUser.id);
+    // Stats
+    const { count } = await supabase
+      .from('runs')
+      .select('*', { count: 'exact' })
+      .eq('user_id', currentUser.id);
 
-      const { data: best } = await supabase
-        .from('runs')
-        .select('max_speed')
-        .eq('user_id', currentUser.id)
-        .order('max_speed', { ascending: false })
-        .limit(1);
+    const { data: best } = await supabase
+      .from('runs')
+      .select('max_speed')
+      .eq('user_id', currentUser.id)
+      .order('max_speed', { ascending: false })
+      .limit(1);
 
-      setStats({
-        runs: count || 0,
-        bestSpeed: best?.[0]?.max_speed || 0,
-        rank: 1,
-      });
+    setStats({
+      runs: count || 0,
+      bestSpeed: best?.[0]?.max_speed || 0,
+      rank: 1,
+    });
 
-      setLoading(false);
-    };
-
-    loadData();
+    setIsAuthLoading(false);
   }, []);
 
-  const handleGoogleLogin = async () => {
+  useEffect(() => {
+    loadAllData();
+  }, [loadAllData]);
+
+  // ==================== GOOGLE LOGIN ====================
+  const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: window.location.origin + '/profile',
       },
     });
-  };
+  }, []);
 
-  const handleLogout = async () => {
+  // ==================== LOGOUT ====================
+  const handleLogout = useCallback(async () => {
     await logout();
-  };
+  }, []);
 
-  const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // ==================== AVATAR & PROFILE UPDATE ====================
+  const handleAvatarChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
       setAvatarFile(file);
       setPreviewUrl(URL.createObjectURL(file));
     }
-  };
+  }, []);
 
-  const handleUpdateProfile = async () => {
+  const handleUpdateProfile = useCallback(async () => {
     if (!user) return;
 
     let avatarUrl = editForm.avatar_url;
+
     if (avatarFile) {
       const fileExt = avatarFile.name.split('.').pop();
       const fileName = `${user.id}-${Date.now()}.${fileExt}`;
@@ -182,9 +186,16 @@ export default function MyProfilePage() {
     setEditOpen(false);
     setAvatarFile(null);
     setPreviewUrl('');
-  };
+  }, [user, editForm, avatarFile]);
 
-  if (loading) return <div className="p-6 text-center">Đang tải...</div>;
+  // ==================== LOADING AUTH ====================
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-green-500">
+        Đang kiểm tra đăng nhập...
+      </div>
+    );
+  }
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
@@ -198,7 +209,7 @@ export default function MyProfilePage() {
             <h1 className="text-3xl font-black mb-2">Chào mừng trở lại!</h1>
             <p className="text-zinc-400 mb-8">Đăng nhập để xem profile và lịch sử Run của bạn</p>
 
-                        <Button
+            <Button
               onClick={handleGoogleLogin}
               className="w-[125%] mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
             >

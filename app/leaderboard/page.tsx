@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Trophy, Car } from 'lucide-react';
+import { Trophy } from 'lucide-react';
 
 export default function LeaderboardPage() {
   const [user, setUser] = useState<any>(null);
@@ -16,27 +16,32 @@ export default function LeaderboardPage() {
   const [regionFilter, setRegionFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [data, setData] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
 
-  // ==================== KIỂM TRA ĐĂNG NHẬP ====================
-  useEffect(() => {
-    const checkAuth = async () => {
-      const currentUser = await getCurrentUser();
-      setUser(currentUser);
-    };
-    checkAuth();
+  // ==================== INIT AUTH ====================
+  const checkAuth = useCallback(async () => {
+    const currentUser = await getCurrentUser();
+    setUser(currentUser);
+    setIsAuthLoading(false);
   }, []);
 
-  const handleGoogleLogin = async () => {
+  useEffect(() => {
+    checkAuth();
+  }, [checkAuth]);
+
+  // ==================== GOOGLE LOGIN ====================
+  const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: window.location.origin + '/leaderboard',
       },
     });
-  };
+  }, []);
 
-  const loadData = async () => {
+  // ==================== LOAD LEADERBOARD DATA ====================
+  const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
 
@@ -91,13 +96,22 @@ export default function LeaderboardPage() {
 
     setData(formatted);
     setLoading(false);
-  };
+  }, [user, activeTab, regionFilter, typeFilter]);
 
   useEffect(() => {
     if (user) {
       loadData();
     }
-  }, [user, activeTab, regionFilter, typeFilter]);
+  }, [loadData]);
+
+  // ==================== LOADING AUTH ====================
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-green-500">
+        Đang kiểm tra đăng nhập...
+      </div>
+    );
+  }
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
@@ -137,7 +151,7 @@ export default function LeaderboardPage() {
     <div className="space-y-6 pb-20 px-3">
       <h1 className="text-3xl font-black text-center">Bảng Xếp Hạng</h1>
 
-      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as any)} className="w-full">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as 'speed' | 'acceleration')} className="w-full">
         <TabsList className="grid w-full grid-cols-2">
           <TabsTrigger value="speed">Top Speed</TabsTrigger>
           <TabsTrigger value="acceleration">0-100 km/h</TabsTrigger>

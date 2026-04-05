@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
@@ -37,7 +37,9 @@ type Vehicle = {
 export default function VehiclesPage() {
   const [user, setUser] = useState<any>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+
   const [open, setOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
 
@@ -51,40 +53,44 @@ export default function VehiclesPage() {
     description: '',
   });
 
-  // ==================== KIỂM TRA ĐĂNG NHẬP ====================
-  useEffect(() => {
-    const loadData = async () => {
-      const u = await getCurrentUser();
-      setUser(u);
+  // ==================== INIT AUTH + LOAD VEHICLES ====================
+  const loadData = useCallback(async () => {
+    const u = await getCurrentUser();
+    setUser(u);
 
-      if (!u) {
-        setLoading(false);
-        return;
-      }
+    if (!u) {
+      setIsAuthLoading(false);
+      return;
+    }
 
-      const { data } = await supabase
-        .from('vehicles')
-        .select('*')
-        .eq('user_id', u.id)
-        .order('created_at', { ascending: false });
+    setLoading(true);
+    const { data } = await supabase
+      .from('vehicles')
+      .select('*')
+      .eq('user_id', u.id)
+      .order('created_at', { ascending: false });
 
-      setVehicles(data || []);
-      setLoading(false);
-    };
-
-    loadData();
+    setVehicles(data || []);
+    setLoading(false);
+    setIsAuthLoading(false);
   }, []);
 
-  const handleGoogleLogin = async () => {
+  useEffect(() => {
+    loadData();
+  }, [loadData]);
+
+  // ==================== GOOGLE LOGIN ====================
+  const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
         redirectTo: window.location.origin + '/vehicles',
       },
     });
-  };
+  }, []);
 
-  const openDialog = (vehicle?: Vehicle) => {
+  // ==================== DIALOG HANDLERS ====================
+  const openDialog = useCallback((vehicle?: Vehicle) => {
     if (vehicle) {
       setEditingVehicle(vehicle);
       setForm({
@@ -101,13 +107,15 @@ export default function VehiclesPage() {
       setForm({ nickname: '', brand: '', model: '', vehicle_type: 'xe_ga', year: '', mod_level: 'Stock', description: '' });
     }
     setOpen(true);
-  };
+  }, []);
 
-  const handleAddOrUpdateVehicle = async () => {
+  const handleAddOrUpdateVehicle = useCallback(async () => {
     if (!user || !form.nickname.trim()) {
       alert('Vui lòng nhập ít nhất tên xe!');
       return;
     }
+
+    setLoading(true);
 
     if (editingVehicle) {
       const { error } = await supabase
@@ -157,9 +165,10 @@ export default function VehiclesPage() {
 
     setForm({ nickname: '', brand: '', model: '', vehicle_type: 'xe_ga', year: '', mod_level: 'Stock', description: '' });
     setEditingVehicle(null);
-  };
+    setLoading(false);
+  }, [user, form, editingVehicle]);
 
-  const handleDeleteVehicle = async (id: number) => {
+  const handleDeleteVehicle = useCallback(async (id: number) => {
     if (!confirm('Bạn có chắc muốn xóa xe này không?')) return;
 
     const { error } = await supabase.from('vehicles').delete().eq('id', id);
@@ -168,7 +177,16 @@ export default function VehiclesPage() {
     } else {
       alert('Lỗi khi xóa: ' + error.message);
     }
-  };
+  }, [vehicles]);
+
+  // ==================== LOADING AUTH ====================
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-green-500">
+        Đang kiểm tra đăng nhập...
+      </div>
+    );
+  }
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
