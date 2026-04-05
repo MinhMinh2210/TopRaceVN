@@ -191,7 +191,7 @@ export default function Home() {
             className="w-full py-8 text-xl font-semibold bg-white text-black hover:bg-zinc-100 rounded-3xl flex items-center justify-center gap-3"
           >
             <img src="https://www.google.com/favicon.ico" alt="Google" className="w-6 h-6" />
-            Đăng nhập bằng Google
+            Google Login
           </Button>
         </div>
 
