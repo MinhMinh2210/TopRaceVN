@@ -24,7 +24,7 @@ type Vehicle = {
   vehicle_type: string;
 };
 
-// ==================== REAL REGION DETECTION ====================
+// ==================== REGION DETECTION ====================
 const getRegionFromCoords = (lat: number, lng: number): string => {
   if (lat >= 10.5 && lat <= 11.1 && lng >= 106.3 && lng <= 107.0) return 'TP.HCM';
   if (lat >= 20.8 && lat <= 21.3 && lng >= 105.6 && lng <= 106.1) return 'Hà Nội';
@@ -35,7 +35,7 @@ const getRegionFromCoords = (lat: number, lng: number): string => {
   return 'Việt Nam';
 };
 
-// ==================== GPS STATUS 6 CẤP ĐỘ ====================
+// ==================== GPS STATUS ====================
 const getGPSStatusInfo = (accuracy: number, speedAvailable: boolean = false) => {
   if (!accuracy || accuracy > 10000) return { text: 'Không có tín hiệu 📡', color: 'text-red-400' };
   if (accuracy < 5 && speedAvailable) return { text: 'VŨ TRỤ SIÊU VIP PRO 🌌', color: 'text-emerald-400' };
@@ -77,16 +77,16 @@ export default function RunPage() {
   const resultRef = useRef<HTMLDivElement>(null);
   const speedHistory = useRef<{ timestamp: number; speed: number }[]>([]);
 
-  // ==================== COUNTDOWN + RECORDING ====================
+  // ==================== COUNTDOWN + FLAGS ====================
   const [countdown, setCountdown] = useState<number | null>(null);
   const recordingStartedRef = useRef(false);
 
-  // ==================== SENSOR FUSION REFS ====================
+  // ==================== SENSOR FUSION + CALIBRATION ====================
   const smoothedSpeedRef = useRef(0);
-
-  // ==================== DEVICE MOTION (Accel + Gyro) ====================
   const accelerationRef = useRef({ x: 0, y: 0, z: 0 });
   const lastMotionTimeRef = useRef(0);
+  const calibrationStartRef = useRef(0);
+  const isCalibratedRef = useRef(false);
   const deviceMotionHandlerRef = useRef<((event: DeviceMotionEvent) => void) | null>(null);
 
   const handleDeviceMotion = (event: DeviceMotionEvent) => {
@@ -114,49 +114,53 @@ export default function RunPage() {
     }
   };
 
-  // ==================== FUSED SPEED (GPS + DeviceMotion) ====================
+  // ==================== FUSED SPEED (đã tối ưu) ====================
   const calculateFusedSpeed = (rawGpsSpeedMs: number | null | undefined): number => {
     const now = Date.now();
-    const dt = (now - lastMotionTimeRef.current) / 1000;
+    const dt = (now - lastMotionTimeRef.current) / 1000 || 0.016;
     lastMotionTimeRef.current = now;
 
     const rawGpsKmh = (rawGpsSpeedMs ?? 0) * 3.6;
 
-    // Complementary filter với accelerometer
-    const accel = accelerationRef.current;
-    const horizontalAccel = Math.sqrt(accel.x * accel.x + accel.y * accel.y);
+    // ==================== CALIBRATION PHASE (5 giây đầu) ====================
+    const timeSinceStart = now - calibrationStartRef.current;
+    const isCalibrated = timeSinceStart > 5000;
+    isCalibratedRef.current = isCalibrated;
 
     let fusedSpeed = rawGpsKmh;
 
-    if (dt > 0 && dt < 0.8) {
+    if (isCalibrated) {
+      // Chỉ fusion sau khi calibrate
+      const accel = accelerationRef.current;
+      const horizontalAccel = Math.sqrt(accel.x * accel.x + accel.y * accel.y);
       const deltaV = horizontalAccel * dt * 3.6;
-      fusedSpeed = rawGpsKmh * 0.65 + (smoothedSpeedRef.current + deltaV) * 0.35;
+
+      fusedSpeed = rawGpsKmh * 0.72 + (smoothedSpeedRef.current + deltaV) * 0.28;
     }
 
-    // EMA smoothing (giống Google Maps)
-    const alpha = 0.65;
+    // EMA smoothing
+    const alpha = isCalibrated ? 0.68 : 0.45; // mượt hơn lúc calibrate
     smoothedSpeedRef.current = smoothedSpeedRef.current * (1 - alpha) + fusedSpeed * alpha;
 
-    return Math.max(0, Math.round(smoothedSpeedRef.current));
+    // STRONG DEADZONE - fix lỗi không về 0
+    let finalSpeed = Math.max(0, Math.round(smoothedSpeedRef.current));
+    if (finalSpeed < 5) finalSpeed = 0;
+
+    return finalSpeed;
   };
 
-  // ==================== KIỂM TRA ĐĂNG NHẬP ====================
+  // ==================== INIT USER ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
       setUser(u);
-
       if (u) {
         const { data } = await supabase
           .from('vehicles')
           .select('id, nickname, brand, model, vehicle_type')
           .eq('user_id', u.id);
-        
         setVehicles(data || []);
-        
-        if (data && data.length > 0 && !selectedVehicle) {
-          setSelectedVehicle(data[0]);
-        }
+        if (data?.length > 0 && !selectedVehicle) setSelectedVehicle(data[0]);
       }
     };
     init();
@@ -165,33 +169,27 @@ export default function RunPage() {
   const handleGoogleLogin = async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: window.location.origin + '/run',
-      },
+      options: { redirectTo: window.location.origin + '/run' },
     });
   };
 
   const checkGPS = async () => {
     setErrorMessage('');
     setGpsStatus('Đang kiểm tra...');
-
     if (!navigator.geolocation) {
       setErrorMessage('Thiết bị không hỗ trợ GPS');
       setGpsStatus('Không có tín hiệu 📡');
       return;
     }
-
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { accuracy, speed } = position.coords;
-        const speedAvailable = speed !== null && speed !== undefined;
-        const info = getGPSStatusInfo(accuracy, speedAvailable);
+        const info = getGPSStatusInfo(accuracy, speed !== null && speed !== undefined);
         setGpsStatus(info.text);
         setGpsAccuracy(Math.round(accuracy));
       },
       (error) => {
-        if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
-        else setErrorMessage('Lỗi GPS: ' + error.message);
+        setErrorMessage(error.code === 1 ? 'Bạn chưa cấp quyền GPS' : 'Lỗi GPS: ' + error.message);
         setGpsStatus('Không có tín hiệu 📡');
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
@@ -203,6 +201,8 @@ export default function RunPage() {
       setErrorMessage('Vui lòng chọn xe trước khi bắt đầu Run!');
       return;
     }
+
+    // RESET TOÀN BỘ
     setErrorMessage('');
     setShowResult(false);
     setCurrentRegion('Đang xác định...');
@@ -211,6 +211,8 @@ export default function RunPage() {
     setCurrentSpeed(0);
     smoothedSpeedRef.current = 0;
     recordingStartedRef.current = false;
+    calibrationStartRef.current = 0;
+    isCalibratedRef.current = false;
 
     setCountdown(5);
     let count = 5;
@@ -221,8 +223,7 @@ export default function RunPage() {
 
       if (count <= 0) {
         clearInterval(countdownInterval);
-
-        if (!navigator.geolocation) return;
+        calibrationStartRef.current = Date.now();   // Bắt đầu calibration
 
         const id = navigator.geolocation.watchPosition(
           (position) => {
@@ -231,20 +232,20 @@ export default function RunPage() {
 
             setCurrentRegion(getRegionFromCoords(latitude, longitude));
 
-            let rawSpeed = gpsSpeedMs !== null && gpsSpeedMs !== undefined ? gpsSpeedMs * 3.6 : 0;
-            if (rawSpeed < 3) rawSpeed = 0;
-
             const targetSpeed = calculateFusedSpeed(gpsSpeedMs);
 
-            const shouldRecord = targetSpeed >= 10;
+            // Chỉ ghi dữ liệu sau khi calibrate và xe thật sự chạy
+            const shouldRecord = isCalibratedRef.current && targetSpeed >= 8;
             if (shouldRecord && !recordingStartedRef.current) {
               recordingStartedRef.current = true;
               speedHistory.current = [];
             }
 
-            setCurrentSpeed(prev => Math.round(prev * 0.4 + targetSpeed * 0.6));
+            setCurrentSpeed(prev => Math.round(prev * 0.35 + targetSpeed * 0.65));
 
-            if (targetSpeed > maxSpeed) setMaxSpeed(targetSpeed);
+            if (recordingStartedRef.current && targetSpeed > maxSpeed) {
+              setMaxSpeed(targetSpeed);
+            }
 
             if (recordingStartedRef.current) {
               speedHistory.current.push({ timestamp: now, speed: targetSpeed });
@@ -306,6 +307,7 @@ export default function RunPage() {
       ai_verified: false,
     });
 
+    // Phần rank & personal best giữ nguyên như cũ
     const today = new Date().toISOString().split('T')[0];
     const { data: todayRuns } = await supabase
       .from('runs')
@@ -375,20 +377,11 @@ export default function RunPage() {
             </div>
             <h1 className="text-3xl font-black mb-2">BẮT ĐẦU RUN</h1>
             <p className="text-zinc-400 mb-8">Đăng nhập để bắt đầu ghi tốc độ và lưu kết quả</p>
-
-            <Button
-              onClick={handleGoogleLogin}
-              className="w-[125%] mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
-            >
+            <Button onClick={handleGoogleLogin} className="w-[125%] mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3">
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Đăng nhập bằng Google
             </Button>
-
-            <Button
-              variant="outline"
-              className="w-full mt-4 py-6 text-base"
-              onClick={() => window.location.href = '/'}
-            >
+            <Button variant="outline" className="w-full mt-4 py-6 text-base" onClick={() => window.location.href = '/'}>
               ← Quay về trang chủ
             </Button>
           </CardContent>
@@ -397,20 +390,15 @@ export default function RunPage() {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP - GIAO DIỆN RUN ====================
+  // ==================== GIAO DIỆN RUN (GIỮ NGUYÊN) ====================
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-
       {/* CARD TỐC ĐỘ LIVE */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
         <CardContent className="p-10 text-center">
           <p className="text-zinc-400 text-base mb-3">SPEED</p>
           <div className="text-[clamp(110px,26vw,170px)] font-black text-green-500 leading-none">
-            {countdown !== null ? (
-              <span className="text-yellow-400">{countdown}</span>
-            ) : (
-              currentSpeed
-            )}
+            {countdown !== null ? <span className="text-yellow-400">{countdown}</span> : currentSpeed}
           </div>
           <p className="text-zinc-400 text-4xl mt-2">
             {countdown !== null ? 'GET READY' : 'km/h'}
@@ -429,11 +417,7 @@ export default function RunPage() {
               {gpsAccuracy && <span className="text-xs text-zinc-500">({gpsAccuracy}m)</span>}
             </div>
           </div>
-
-          <Button 
-            onClick={checkGPS}
-            className="w-full py-6 text-lg font-semibold bg-white hover:bg-zinc-100 text-zinc-900 rounded-2xl"
-          >
+          <Button onClick={checkGPS} className="w-full py-6 text-lg font-semibold bg-white hover:bg-zinc-100 text-zinc-900 rounded-2xl">
             GPS Checking
           </Button>
         </CardContent>
@@ -448,19 +432,12 @@ export default function RunPage() {
 
       <div className="flex justify-center -mt-2">
         {!isRunning && !showResult ? (
-          <Button 
-            onClick={startRun}
-            className="w-[90%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl"
-            disabled={!selectedVehicle}
-          >
+          <Button onClick={startRun} className="w-[90%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl" disabled={!selectedVehicle}>
             <Play className="mr-6 h-10 w-10" />
             START
           </Button>
         ) : isRunning ? (
-          <Button 
-            onClick={stopRun}
-            className="w-full py-12 text-4xl bg-red-600 hover:bg-red-700 rounded-3xl"
-          >
+          <Button onClick={stopRun} className="w-full py-12 text-4xl bg-red-600 hover:bg-red-700 rounded-3xl">
             <Square className="mr-6 h-10 w-10" />
             END
           </Button>
@@ -481,12 +458,7 @@ export default function RunPage() {
           </DialogHeader>
           <div className="space-y-3 max-h-80 overflow-auto py-4">
             {vehicles.map((v) => (
-              <Button
-                key={v.id}
-                variant={selectedVehicle?.id === v.id ? "default" : "outline"}
-                className="w-full justify-start text-2xl py-7"
-                onClick={() => setSelectedVehicle(v)}
-              >
+              <Button key={v.id} variant={selectedVehicle?.id === v.id ? "default" : "outline"} className="w-full justify-start text-2xl py-7" onClick={() => setSelectedVehicle(v)}>
                 {v.nickname} — {v.brand} {v.model}
               </Button>
             ))}
@@ -499,14 +471,12 @@ export default function RunPage() {
           <Card className="bg-zinc-900 border-zinc-800 w-full">
             <CardContent className="p-10 text-center space-y-8">
               <h2 className="text-3xl font-bold text-green-500">End!</h2>
-
               <div>
                 <p className="text-zinc-400 text-base">Top Speed cao nhất</p>
                 <p className="text-8xl font-black text-green-500">{runResult.maxSpeed}</p>
                 <p className="text-zinc-400 text-2xl">km/h</p>
                 <p className="text-xs text-zinc-500 mt-3">{runResult.date}</p>
               </div>
-
               <div className="grid grid-cols-2 gap-8 border-t border-zinc-800 pt-8">
                 <div>
                   <p className="text-zinc-400 text-sm">0 - 100 km/h</p>
@@ -519,12 +489,9 @@ export default function RunPage() {
                   <p className="font-medium text-2xl">{runResult.region}</p>
                 </div>
               </div>
-
               <div>
-                <p className="text-zinc-400 text-sm"></p>
                 <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
               </div>
-
               <div className="space-y-3 text-left border-t border-zinc-800 pt-6">
                 {runResult.isNewPersonalBest && (
                   <div className="flex justify-between items-center bg-zinc-800 rounded-2xl px-5 py-4">
@@ -533,7 +500,6 @@ export default function RunPage() {
                   </div>
                 )}
               </div>
-
               <div className="flex gap-4 pt-4">
                 <Button onClick={resetRun} variant="outline" className="flex-1 py-6 text-base">
                   <RotateCcw className="mr-2 h-5 w-5" />
