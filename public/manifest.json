@@ -1,0 +1,18 @@
+{
+  "name": "81 Vietnam Speed Rank",
+  "short_name": "Speed Rank",
+  "description": "Ghi tốc độ xe - Chạy thật - Rank thật",
+  "start_url": "/run",
+  "display": "fullscreen",
+  "display_override": ["fullscreen", "standalone", "minimal-ui"],
+  "background_color": "#09090b",
+  "theme_color": "#22c55e",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/favicon.ico",
+      "sizes": "any",
+      "type": "image/x-icon"
+    }
+  ]
+}
