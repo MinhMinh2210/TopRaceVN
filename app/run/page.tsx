@@ -24,34 +24,25 @@ type Vehicle = {
   vehicle_type: string;
 };
 
-// ==================== REGION DETECTION - REAL & CHI TIẾT 63 TỈNH ====================
+// ==================== REGION DETECTION ====================
 const getRegionFromCoords = (lat: number, lng: number): string => {
-  // TP.HCM & lân cận
   if (lat >= 10.4 && lat <= 11.2 && lng >= 106.2 && lng <= 107.1) return 'TP.HCM';
   if (lat >= 10.8 && lat <= 11.1 && lng >= 106.6 && lng <= 107.0) return 'Bình Dương';
   if (lat >= 10.5 && lat <= 11.0 && lng >= 106.9 && lng <= 107.3) return 'Đồng Nai';
   if (lat >= 10.3 && lat <= 10.7 && lng >= 107.0 && lng <= 107.5) return 'Bà Rịa - Vũng Tàu';
-
-  // Hà Nội & miền Bắc
   if (lat >= 20.8 && lat <= 21.4 && lng >= 105.5 && lng <= 106.2) return 'Hà Nội';
   if (lat >= 20.9 && lat <= 21.3 && lng >= 105.8 && lng <= 106.1) return 'Bắc Ninh';
   if (lat >= 21.0 && lat <= 21.5 && lng >= 105.6 && lng <= 106.0) return 'Hưng Yên';
   if (lat >= 20.5 && lat <= 21.0 && lng >= 105.3 && lng <= 105.8) return 'Hà Nam';
-
-  // Đà Nẵng & miền Trung
   if (lat >= 15.8 && lat <= 16.3 && lng >= 107.8 && lng <= 108.5) return 'Đà Nẵng';
   if (lat >= 15.9 && lat <= 16.2 && lng >= 108.1 && lng <= 108.4) return 'Quảng Nam';
   if (lat >= 16.0 && lat <= 16.5 && lng >= 107.5 && lng <= 108.0) return 'Thừa Thiên Huế';
-
-  // Các tỉnh khác (mở rộng)
   if (lat >= 11.8 && lat <= 12.5 && lng >= 108.9 && lng <= 109.5) return 'Nha Trang - Khánh Hòa';
   if (lat >= 10.9 && lat <= 11.3 && lng >= 108.7 && lng <= 109.2) return 'Phan Thiết - Bình Thuận';
   if (lat >= 21.8 && lat <= 22.3 && lng >= 106.5 && lng <= 107.0) return 'Hạ Long - Quảng Ninh';
   if (lat >= 13.5 && lat <= 14.0 && lng >= 108.9 && lng <= 109.4) return 'Quy Nhơn - Bình Định';
   if (lat >= 9.8 && lat <= 10.3 && lng >= 105.8 && lng <= 106.3) return 'Cần Thơ';
   if (lat >= 9.0 && lat <= 9.8 && lng >= 104.5 && lng <= 105.5) return 'Kiên Giang';
-
-  // Mặc định
   return 'Việt Nam';
 };
 
@@ -71,12 +62,12 @@ export default function RunPage() {
   const [user, setUser] = useState<any>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
-  const [isAuthLoading, setIsAuthLoading] = useState(true);   // ← FIX FLASH LOGIN
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   const [isRunning, setIsRunning] = useState(false);
   const [currentSpeed, setCurrentSpeed] = useState(0);
   const [maxSpeed, setMaxSpeed] = useState(0);
-  const [gpsStatus, setGpsStatus] = useState('Not checked');
+  const [gpsStatus, setGpsStatus] = useState('Chưa kiểm tra');
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [watchId, setWatchId] = useState<number | null>(null);
@@ -95,6 +86,9 @@ export default function RunPage() {
     isNewPersonalBest: false,
   });
 
+  const [isCheckingGPS, setIsCheckingGPS] = useState(false);   // ← GPS loading
+  const [isStarting, setIsStarting] = useState(false);         // ← Ngăn spam START
+
   const resultRef = useRef<HTMLDivElement>(null);
   const speedHistory = useRef<{ timestamp: number; speed: number }[]>([]);
 
@@ -108,9 +102,9 @@ export default function RunPage() {
   const calibrationStartRef = useRef(0);
   const isCalibratedRef = useRef(false);
   const deviceMotionHandlerRef = useRef<((event: DeviceMotionEvent) => void) | null>(null);
-  const lastSpeedUpdateRef = useRef(0);   // ← THROTTLE
+  const lastSpeedUpdateRef = useRef(0);
 
-  // ==================== DEVICE MOTION ====================
+  // ==================== DEVICE MOTION & FUSED SPEED (giữ nguyên) ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
     if (event.accelerationIncludingGravity) {
       accelerationRef.current = {
@@ -162,24 +156,19 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== INIT USER (FIX FLASH) ====================
+  // ==================== INIT USER ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
       setUser(u);
-
       if (u) {
         const { data } = await supabase
           .from('vehicles')
           .select('id, nickname, brand, model, vehicle_type')
           .eq('user_id', u.id);
-        
         const vehicleList = data ?? [];
         setVehicles(vehicleList);
-
-        if (vehicleList.length > 0 && !selectedVehicle) {
-          setSelectedVehicle(vehicleList[0]);
-        }
+        if (vehicleList.length > 0 && !selectedVehicle) setSelectedVehicle(vehicleList[0]);
       }
       setIsAuthLoading(false);
     };
@@ -193,13 +182,15 @@ export default function RunPage() {
     });
   }, []);
 
+  // ==================== GPS CHECKING (động trên nút) ====================
   const checkGPS = useCallback(async () => {
+    setIsCheckingGPS(true);
     setErrorMessage('');
-    setGpsStatus('Đang kiểm tra...');
 
     if (!navigator.geolocation) {
       setErrorMessage('Thiết bị không hỗ trợ GPS');
-      setGpsStatus('Không có tín hiệu 📡');
+      setGpsStatus('Không hỗ trợ GPS');
+      setIsCheckingGPS(false);
       return;
     }
 
@@ -209,21 +200,21 @@ export default function RunPage() {
         const info = getGPSStatusInfo(accuracy, speed !== null && speed !== undefined);
         setGpsStatus(info.text);
         setGpsAccuracy(Math.round(accuracy));
+        setIsCheckingGPS(false);
       },
       (error) => {
         setErrorMessage(error.code === 1 ? 'Bạn chưa cấp quyền GPS' : 'Lỗi GPS: ' + error.message);
-        setGpsStatus('Không có tín hiệu 📡');
+        setGpsStatus('Lỗi GPS');
+        setIsCheckingGPS(false);
       },
       { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
     );
   }, []);
 
   const startRun = useCallback(() => {
-    if (!selectedVehicle) {
-      setErrorMessage('Vui lòng chọn xe trước khi bắt đầu Run!');
-      return;
-    }
+    if (!selectedVehicle || isStarting) return;
 
+    setIsStarting(true);
     setErrorMessage('');
     setShowResult(false);
     setCurrentRegion('Đang xác định...');
@@ -256,7 +247,6 @@ export default function RunPage() {
 
             const targetSpeed = calculateFusedSpeed(gpsSpeedMs);
 
-            // THROTTLE + INERTIA (siêu mượt trên mobile)
             if (now - lastSpeedUpdateRef.current > 80) {
               setCurrentSpeed((prev) => {
                 const newDisplayed = Math.round(prev * 0.32 + targetSpeed * 0.68);
@@ -297,16 +287,19 @@ export default function RunPage() {
         setWatchId(id);
         setIsRunning(true);
         startDeviceMotion();
+        setIsStarting(false);   // cho phép reset lại sau khi bắt đầu
       }
     }, 1000);
-  }, [selectedVehicle, calculateFusedSpeed, startDeviceMotion, maxSpeed]);
+  }, [selectedVehicle, isStarting, calculateFusedSpeed, startDeviceMotion, maxSpeed]);
 
-  const stopRun = useCallback(async () => {
+  const stopRun = useCallback(async () => { /* giữ nguyên logic cũ */ 
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
     setIsRunning(false);
     setCountdown(null);
+    setIsStarting(false);
 
+    // ... (toàn bộ phần stopRun cũ của bạn, mình giữ nguyên 100%)
     let zeroToHundred = 0;
     if (speedHistory.current.length >= 2) {
       const sorted = [...speedHistory.current].sort((a, b) => a.timestamp - b.timestamp);
@@ -338,7 +331,6 @@ export default function RunPage() {
       ai_verified: false,
     });
 
-    // ... (phần rank & personal best giữ nguyên như cũ)
     const today = new Date().toISOString().split('T')[0];
     const { data: todayRuns } = await supabase
       .from('runs')
@@ -396,6 +388,7 @@ export default function RunPage() {
     recordingStartedRef.current = false;
     smoothedSpeedRef.current = 0;
     displayedSpeedRef.current = 0;
+    setIsStarting(false);
   }, [watchId, stopDeviceMotion]);
 
   // ==================== CHƯA ĐĂNG NHẬP + LOADING ====================
@@ -430,7 +423,7 @@ export default function RunPage() {
     );
   }
 
-  // ==================== GIAO DIỆN RUN (GIỮ NGUYÊN) ====================
+  // ==================== GIAO DIỆN RUN ====================
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
       {/* CARD TỐC ĐỘ LIVE */}
@@ -446,25 +439,22 @@ export default function RunPage() {
         </CardContent>
       </Card>
 
-      {/* Các phần còn lại giữ nguyên như code cũ của bạn */}
-      {/* ... (GPS Card, Error, Button START/END, Dialog, Result Card, Footer) ... */}
-
-      <Card className="bg-zinc-900 border-zinc-800 w-full max-w-[360px] mx-auto">
-        <CardContent className="p-5 space-y-4">
-          <div className="flex justify-between items-center text-lg">
-            <span className="text-zinc-400">GPS</span>
-            <div className="flex items-center gap-2">
-              <span className={`font-medium ${getGPSStatusInfo(gpsAccuracy || 999, true).color}`}>
-                {gpsStatus}
-              </span>
-              {gpsAccuracy && <span className="text-xs text-zinc-500">({gpsAccuracy}m)</span>}
-            </div>
-          </div>
-          <Button onClick={checkGPS} className="w-full py-6 text-lg font-semibold bg-white hover:bg-zinc-100 text-zinc-900 rounded-2xl">
-            GPS Checking
-          </Button>
-        </CardContent>
-      </Card>
+      {/* NÚT GPS CHECKING ĐỘNG (đã tích hợp status) */}
+      <Button
+        onClick={checkGPS}
+        disabled={isCheckingGPS}
+        className={`w-full py-6 text-lg font-semibold rounded-2xl transition-all ${
+          isCheckingGPS ? 'bg-zinc-700 text-zinc-400' : 'bg-white hover:bg-zinc-100 text-zinc-900'
+        }`}
+      >
+        {isCheckingGPS ? (
+          <>Đang kiểm tra GPS...</>
+        ) : (
+          <span className={getGPSStatusInfo(gpsAccuracy || 999, true).color}>
+            {gpsStatus} {gpsAccuracy ? `(${gpsAccuracy}m)` : ''}
+          </span>
+        )}
+      </Button>
 
       {errorMessage && (
         <div className="bg-red-950 border border-red-800 text-red-400 p-7 rounded-3xl flex items-start gap-4 text-xl whitespace-pre-line">
@@ -475,9 +465,19 @@ export default function RunPage() {
 
       <div className="flex justify-center -mt-2">
         {!isRunning && !showResult ? (
-          <Button onClick={startRun} className="w-[90%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl" disabled={!selectedVehicle}>
-            <Play className="mr-6 h-10 w-10" />
-            START
+          <Button
+            onClick={startRun}
+            disabled={isStarting}
+            className="w-[90%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl disabled:opacity-50"
+          >
+            {isStarting ? (
+              <>Đang khởi động...</>
+            ) : (
+              <>
+                <Play className="mr-6 h-10 w-10" />
+                START
+              </>
+            )}
           </Button>
         ) : isRunning ? (
           <Button onClick={stopRun} className="w-full py-12 text-4xl bg-red-600 hover:bg-red-700 rounded-3xl">
@@ -487,6 +487,7 @@ export default function RunPage() {
         ) : null}
       </div>
 
+      {/* Dialog chọn xe và Result giữ nguyên */}
       <Dialog>
         <DialogTrigger asChild>
           <Button variant="outline" className="w-full mt-3 py-8 text-2xl">
