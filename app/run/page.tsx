@@ -15,6 +15,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog';
 import { Play, Square, RotateCcw, AlertCircle, Car, Download } from 'lucide-react';
+import html2canvas from 'html2canvas';
 
 type Vehicle = {
   id: number;
@@ -369,9 +370,9 @@ export default function RunPage() {
     setShowResult(false);
     setCurrentSpeed(0);
     setMaxSpeed(0);
-    setGpsStatus('Chưa kiểm tra');
+    setGpsStatus('GPS Checking');
     setGpsAccuracy(null);
-    setCurrentRegion('Đang xác định...');
+    setCurrentRegion('Determining...');
     setCountdown(null);
     speedHistory.current = [];
     recordingStartedRef.current = false;
@@ -380,28 +381,28 @@ export default function RunPage() {
     setIsStarting(false);
   }, [watchId, stopDeviceMotion]);
 
-  const downloadResult = useCallback(() => {
-    const data = {
-      ...runResult,
-      vehicle: selectedVehicle,
-      timestamp: new Date().toISOString(),
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `TopRaceVN_Run_${new Date().toISOString().slice(0,19)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }, [runResult, selectedVehicle]);
+  // ==================== TẢI ẢNH BẢNG KẾT QUẢ ====================
+  const downloadResultAsImage = useCallback(async () => {
+    const card = resultRef.current;
+    if (!card) return;
+    try {
+      const canvas = await html2canvas(card, {
+        scale: 2,
+        backgroundColor: '#18181b',
+        logging: false,
+      });
+      const link = document.createElement('a');
+      link.download = `TopRaceVN_${new Date().toISOString().slice(0,19)}.png`;
+      link.href = canvas.toDataURL('image/png');
+      link.click();
+    } catch (e) {
+      alert('Không thể tải ảnh. Vui lòng thử lại!');
+    }
+  }, []);
 
-  // ==================== CHƯA ĐĂNG NHẬP + LOADING ====================
+  // ==================== GIAO DIỆN ====================
   if (isAuthLoading) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center">
-        <div className="text-green-500">Đang kiểm tra đăng nhập...</div>
-      </div>
-    );
+    return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-green-500">Đang kiểm tra đăng nhập...</div>;
   }
 
   if (!user) {
@@ -427,7 +428,6 @@ export default function RunPage() {
     );
   }
 
-  // ==================== GIAO DIỆN RUN ====================
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
       {/* CARD TỐC ĐỘ LIVE */}
@@ -443,7 +443,7 @@ export default function RunPage() {
         </CardContent>
       </Card>
 
-      {/* NÚT GPS CHECKING ĐỘNG */}
+      {/* NÚT GPS CHECKING */}
       <Button
         onClick={checkGPS}
         disabled={isCheckingGPS}
@@ -451,9 +451,7 @@ export default function RunPage() {
           isCheckingGPS ? 'bg-zinc-700 text-zinc-400' : 'bg-white hover:bg-zinc-100 text-zinc-900'
         }`}
       >
-        {isCheckingGPS ? (
-          <>Đang kiểm tra GPS...</>
-        ) : (
+        {isCheckingGPS ? <>Đang kiểm tra GPS...</> : (
           <span className={getGPSStatusInfo(gpsAccuracy || 999, true).color}>
             {gpsStatus} {gpsAccuracy ? `(${gpsAccuracy}m)` : ''}
           </span>
@@ -469,12 +467,8 @@ export default function RunPage() {
 
       <div className="flex justify-center -mt-2">
         {!isRunning && !showResult ? (
-          <Button
-            onClick={startRun}
-            disabled={isStarting}
-            className="w-[90%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl disabled:opacity-50"
-          >
-            {isStarting ? <>Loading</> : <><Play className="mr-6 h-10 w-10" />START</>}
+          <Button onClick={startRun} disabled={isStarting} className="w-[90%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl disabled:opacity-50">
+            {isStarting ? <>Đang khởi động...</> : <><Play className="mr-6 h-10 w-10" />START</>}
           </Button>
         ) : isRunning ? (
           <Button onClick={stopRun} className="w-full py-12 text-4xl bg-red-600 hover:bg-red-700 rounded-3xl">
@@ -511,44 +505,43 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ==================== BẢNG KẾT QUẢ (THÔNG BÁO HIỂN THỊ) ==================== */}
+      {/* ==================== BẢNG KẾT QUẢ (ĐÃ CÂN ĐỐI HOÀN CHỈNH) ==================== */}
       {showResult && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4">
-          <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto scale-95 transition-all">
-            <CardContent className="p-8 space-y-6">   {/* Giảm padding ~20% */}
+          <Card ref={resultRef} className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
+            <CardContent className="p-8 space-y-6">
+              {/* Header */}
               <div className="flex items-center justify-between">
-                {/* Icon Download góc trái */}
-                <button
-                  onClick={downloadResult}
-                  className="flex items-center gap-2 text-zinc-400 hover:text-green-400 transition-colors"
-                >
-                  <Download className="w-5 h-5" />
-                  <span className="text-sm font-medium">Tải dữ liệu</span>
+                <div className="w-6" /> {/* spacer bên trái */}
+                <h2 className="text-3xl font-bold text-green-500 tracking-tight">TopRaceVN</h2>
+                <button onClick={downloadResultAsImage} className="text-zinc-400 hover:text-green-400 transition-colors">
+                  <Download className="w-6 h-6" />
                 </button>
-                <h2 className="text-3xl font-bold text-green-500">TopRaceVN</h2>
               </div>
 
-              <div>
+              {/* Top Speed - Căn giữa */}
+              <div className="text-center">
                 <p className="text-zinc-400 text-base">Top Speed cao nhất</p>
-                <p className="text-8xl font-black text-green-500">{runResult.maxSpeed}</p>
+                <p className="text-8xl font-black text-green-500 leading-none">{runResult.maxSpeed}</p>
                 <p className="text-zinc-400 text-2xl">km/h</p>
-                <p className="text-xs text-zinc-500 mt-3">{runResult.date}</p>
+                <p className="text-xs text-zinc-500 mt-2">{runResult.date}</p>
               </div>
 
               <div className="grid grid-cols-2 gap-8 border-t border-zinc-800 pt-8">
-                <div>
+                <div className="text-center">
                   <p className="text-zinc-400 text-sm">0 - 100 km/h</p>
                   <p className="text-5xl font-bold text-cyan-400">
                     {runResult.zeroToHundred > 0 ? `${runResult.zeroToHundred}s` : '--'}
                   </p>
                 </div>
-                <div>
+                <div className="text-center">
                   <p className="text-zinc-400 text-sm">Khu vực</p>
                   <p className="font-medium text-2xl">{runResult.region}</p>
                 </div>
               </div>
 
-              <div>
+              {/* Rank - Căn giữa */}
+              <div className="text-center">
                 <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
               </div>
 
