@@ -198,21 +198,16 @@ export default function VehiclesPage() {
               <Car className="w-10 h-10 text-green-500" />
             </div>
             <h1 className="text-3xl font-black mb-2">Xe của tôi</h1>
-            <p className="text-zinc-400 mb-8">Đăng nhập để quản lý xe và lịch sử Run</p>
-
+            <p className="text-zinc-400 mb-8">Đăng nhập để bắt đầu ghi tốc độ và lưu kết quả</p>
             <Button
               onClick={handleGoogleLogin}
-              className="w-[125%] mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
+              className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
             >
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Google Login
             </Button>
 
-            <Button
-              variant="outline"
-              className="w-full mt-4 py-6 text-base"
-              onClick={() => window.location.href = '/'}
-            >
+            <Button variant="outline" className="w-full mt-4 py-6 text-base" onClick={() => window.location.href = '/'}>
               ← Quay về trang chủ
             </Button>
           </CardContent>
@@ -220,6 +215,8 @@ export default function VehiclesPage() {
       </div>
     );
   }
+
+  
 
   // ==================== ĐÃ ĐĂNG NHẬP - DANH SÁCH XE ====================
   if (loading) {
