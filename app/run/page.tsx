@@ -24,22 +24,7 @@ type Vehicle = {
   vehicle_type: string;
 };
 
-// ==================== THUẬT TOÁN HAVERSINE ĐÃ TỐI ƯU ====================
-const DEG_TO_RAD = Math.PI / 180;
-const haversineDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
-  const φ1 = lat1 * DEG_TO_RAD;
-  const φ2 = lat2 * DEG_TO_RAD;
-  const Δφ = (lat2 - lat1) * DEG_TO_RAD;
-  const Δλ = (lon2 - lon1) * DEG_TO_RAD;
-
-  const a = Math.sin(Δφ / 2) ** 2 +
-            Math.cos(φ1) * Math.cos(φ2) *
-            Math.sin(Δλ / 2) ** 2;
-  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-  return 6371e3 * c;
-};
-
-// ==================== REAL REGION DETECTION ====================
+// ==================== REAL REGION DETECTION (giữ nguyên) ====================
 const getRegionFromCoords = (lat: number, lng: number): string => {
   if (lat >= 10.5 && lat <= 11.1 && lng >= 106.3 && lng <= 107.0) return 'TP.HCM';
   if (lat >= 20.8 && lat <= 21.3 && lng >= 105.6 && lng <= 106.1) return 'Hà Nội';
@@ -50,7 +35,7 @@ const getRegionFromCoords = (lat: number, lng: number): string => {
   return 'Việt Nam';
 };
 
-// ==================== GPS STATUS 6 CẤP ĐỘ ====================
+// ==================== GPS STATUS 6 CẤP ĐỘ (giữ nguyên) ====================
 const getGPSStatusInfo = (accuracy: number, speedAvailable: boolean = false) => {
   if (!accuracy || accuracy > 10000) return { text: 'Không có tín hiệu 📡', color: 'text-red-400' };
   if (accuracy < 5 && speedAvailable) return { text: 'VŨ TRỤ SIÊU VIP PRO 🌌', color: 'text-emerald-400' };
@@ -90,19 +75,24 @@ export default function RunPage() {
   });
 
   const resultRef = useRef<HTMLDivElement>(null);
-  const positionHistory = useRef<{ lat: number; lng: number; timestamp: number }[]>([]);
   const speedHistory = useRef<{ timestamp: number; speed: number }[]>([]);
 
-  // ==================== TỐI ƯU GPS ====================
-  const lastUpdateRef = useRef<number>(0);
-  const displayedSpeedRef = useRef<number>(0);
-
-  // ==================== COUNTDOWN 5 GIÂY + RECORDING FLAG + SMOOTHING BUFFER ====================
+  // ==================== COUNTDOWN + RECORDING FLAG ====================
   const [countdown, setCountdown] = useState<number | null>(null);
   const recordingStartedRef = useRef(false);
-  const speedBufferRef = useRef<number[]>([]);           
-  const lastValidSpeedRef = useRef(0);                   
-  const velocityTrendRef = useRef(0);                    
+
+  // ==================== GOOGLE-STYLE SENSOR FUSION SIMULATION ====================
+  // Ưu tiên coords.speed (đã được OS + GNSS fusion) + EMA smoothing nhẹ
+  // Đây chính là cách Google Maps xử lý tốc độ trên Android/iOS (mượt, ít nhiễu, phản ứng nhanh)
+  const smoothedSpeedRef = useRef(0);
+
+  const calculateGoogleStyleSpeed = (rawSpeed: number): number => {
+    // EMA (Exponential Moving Average) – mô phỏng sensor fusion smoothing của Google
+    // Giá trị alpha = 0.65 cho cảm giác cực mượt, giống Google Maps
+    const alpha = 0.65;
+    smoothedSpeedRef.current = smoothedSpeedRef.current * (1 - alpha) + rawSpeed * alpha;
+    return Math.max(0, Math.round(smoothedSpeedRef.current));
+  };
 
   // ==================== KIỂM TRA ĐĂNG NHẬP ====================
   useEffect(() => {
@@ -162,43 +152,6 @@ export default function RunPage() {
     );
   };
 
-  // ==================== TỐI ƯU SMOOTHING + ADAPTIVE ANTI-JUMP (DÀNH CHO XE 1000CC SIÊU MẠNH) ====================
-  const calculateSmoothedSpeed = (rawSpeed: number): number => {
-    speedBufferRef.current.push(rawSpeed);
-    if (speedBufferRef.current.length > 5) speedBufferRef.current.shift();
-
-    const avg = speedBufferRef.current.reduce((a, b) => a + b, 0) / speedBufferRef.current.length;
-
-    const alpha = 0.48;
-    let smoothed = lastValidSpeedRef.current * (1 - alpha) + avg * alpha;
-
-    // ==================== ADAPTIVE ANTI-JUMP - TỐI ƯU CHO XE 1000CC ====================
-    // Xe mạnh (1000cc đề 3) có thể tăng 20-35km/h trong 1 tick GPS → cần ngưỡng linh hoạt
-    const currentSpeedForCalc = lastValidSpeedRef.current;
-    let maxAllowedJump = 18; // base
-
-    // Tăng ngưỡng khi đang tăng tốc mạnh (dựa trên trend)
-    if (velocityTrendRef.current > 8) maxAllowedJump = 26;           // đang "đè ga" mạnh
-    else if (velocityTrendRef.current > 4) maxAllowedJump = 22;
-    
-    // Tăng thêm theo tốc độ hiện tại (xe càng nhanh càng cho phép nhảy lớn hơn)
-    if (currentSpeedForCalc > 80) maxAllowedJump += 8;
-    if (currentSpeedForCalc > 120) maxAllowedJump += 6;
-
-    const diff = smoothed - lastValidSpeedRef.current;
-
-    if (Math.abs(diff) > maxAllowedJump) {
-      smoothed = lastValidSpeedRef.current + (diff > 0 ? maxAllowedJump : -maxAllowedJump);
-    }
-
-    // Theo dõi trend để ramp mượt
-    const trend = smoothed - lastValidSpeedRef.current;
-    velocityTrendRef.current = velocityTrendRef.current * 0.65 + trend * 0.35;
-
-    lastValidSpeedRef.current = Math.max(0, Math.round(smoothed));
-    return lastValidSpeedRef.current;
-  };
-
   const startRun = () => {
     if (!selectedVehicle) {
       setErrorMessage('Vui lòng chọn xe trước khi bắt đầu Run!');
@@ -207,14 +160,10 @@ export default function RunPage() {
     setErrorMessage('');
     setShowResult(false);
     setCurrentRegion('Đang xác định...');
-    positionHistory.current = [];
     speedHistory.current = [];
     setMaxSpeed(0);
-    displayedSpeedRef.current = 0;
     setCurrentSpeed(0);
-    speedBufferRef.current = [];
-    lastValidSpeedRef.current = 0;
-    velocityTrendRef.current = 0;
+    smoothedSpeedRef.current = 0;
     recordingStartedRef.current = false;
 
     setCountdown(5);
@@ -232,58 +181,41 @@ export default function RunPage() {
         const id = navigator.geolocation.watchPosition(
           (position) => {
             const now = Date.now();
-            const { latitude, longitude, speed: gpsSpeed, accuracy } = position.coords;
+            const { latitude, longitude, speed: gpsSpeedMs, accuracy } = position.coords;
 
             setCurrentRegion(getRegionFromCoords(latitude, longitude));
 
-            positionHistory.current.push({ lat: latitude, lng: longitude, timestamp: now });
-            if (positionHistory.current.length > 8) positionHistory.current.shift();
+            // ====================== GPS MÔ PHỎNG GOOGLE ======================
+            // Ưu tiên tốc độ từ GNSS (coords.speed) – đã được hệ điều hành fusion với IMU
+            let rawSpeed = gpsSpeedMs !== null && gpsSpeedMs !== undefined 
+              ? gpsSpeedMs * 3.6 
+              : 0;
 
-            let calculatedSpeed = 0;
-            if (positionHistory.current.length >= 3) {
-              const p1 = positionHistory.current[positionHistory.current.length - 3];
-              const p2 = positionHistory.current[positionHistory.current.length - 2];
-              const p3 = positionHistory.current[positionHistory.current.length - 1];
-              const d1 = haversineDistance(p1.lat, p1.lng, p2.lat, p2.lng);
-              const d2 = haversineDistance(p2.lat, p2.lng, p3.lat, p3.lng);
-              const distance = (d1 + d2) / 2;
-              const timeDiff = (p3.timestamp - p1.timestamp) / 1000;
-              if (timeDiff > 0) calculatedSpeed = (distance / timeDiff) * 3.6;
-            }
-
-            let rawSpeed = Math.max(calculatedSpeed || gpsSpeed || 0, 0);
-            rawSpeed = Math.round(rawSpeed * 0.96);
             if (rawSpeed < 3) rawSpeed = 0;
 
-            const shouldRecord = rawSpeed >= 10;
+            // Áp dụng sensor-fusion-style smoothing (EMA) – giống thuật toán Google Maps
+            const targetSpeed = calculateGoogleStyleSpeed(rawSpeed);
+
+            // Bắt đầu ghi dữ liệu khi xe thực sự chạy
+            const shouldRecord = targetSpeed >= 10;
             if (shouldRecord && !recordingStartedRef.current) {
               recordingStartedRef.current = true;
-              positionHistory.current = [positionHistory.current[positionHistory.current.length - 1]!];
               speedHistory.current = [];
             }
 
-            const targetSpeed = calculateSmoothedSpeed(rawSpeed);
+            // Update tốc độ live (có inertia nhẹ để mượt hơn)
+            setCurrentSpeed(prev => Math.round(prev * 0.4 + targetSpeed * 0.6));
 
-            const timeSinceLast = now - lastUpdateRef.current;
-            const adaptiveInterval = targetSpeed < 30 ? 800 : targetSpeed < 60 ? 500 : 300;
-            if (timeSinceLast < adaptiveInterval && targetSpeed > 0) return;
-
-            lastUpdateRef.current = now;
-            displayedSpeedRef.current = targetSpeed;
-
-            setCurrentSpeed(prev => {
-              const diff = displayedSpeedRef.current - prev;
-              return Math.round(prev + diff * 0.42);
-            });
-
-            // MAX SPEED luôn lấy giá trị đã smooth (đã adaptive anti-jump)
+            // Max speed
             if (targetSpeed > maxSpeed) setMaxSpeed(targetSpeed);
 
+            // Ghi history cho tính 0-100 km/h
             if (recordingStartedRef.current) {
               speedHistory.current.push({ timestamp: now, speed: targetSpeed });
             }
 
-            const speedAvailable = gpsSpeed !== null && gpsSpeed !== undefined;
+            // GPS status
+            const speedAvailable = gpsSpeedMs !== null && gpsSpeedMs !== undefined;
             const info = getGPSStatusInfo(accuracy, speedAvailable);
             setGpsStatus(info.text);
             setGpsAccuracy(Math.round(accuracy));
@@ -292,7 +224,11 @@ export default function RunPage() {
             if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
             else setErrorMessage('Lỗi GPS: ' + error.message);
           },
-          { enableHighAccuracy: true, timeout: 3000, maximumAge: 0 }
+          { 
+            enableHighAccuracy: true, 
+            timeout: 3000, 
+            maximumAge: 0 
+          }
         );
 
         setWatchId(id);
@@ -389,10 +325,9 @@ export default function RunPage() {
     setGpsAccuracy(null);
     setCurrentRegion('Đang xác định...');
     setCountdown(null);
-    positionHistory.current = [];
     speedHistory.current = [];
     recordingStartedRef.current = false;
-    speedBufferRef.current = [];
+    smoothedSpeedRef.current = 0;
   };
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
@@ -428,11 +363,9 @@ export default function RunPage() {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP - GIAO DIỆN RUN ====================
+  // ==================== ĐÃ ĐĂNG NHẬP - GIAO DIỆN RUN (UI GIỮ NGUYÊN 100%) ====================
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-
-
 
       {/* CARD TỐC ĐỘ LIVE */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
@@ -479,7 +412,7 @@ export default function RunPage() {
         </div>
       )}
 
-     <div className="flex justify-center -mt-2">
+      <div className="flex justify-center -mt-2">
         {!isRunning && !showResult ? (
           <Button 
             onClick={startRun}
