@@ -125,7 +125,7 @@ export default function VehiclesPage() {
       model: form.model.trim(),
       vehicle_type: form.vehicle_type,
       year: form.year ? parseInt(form.year) : null,
-      mod_level: form.mod_level,
+      mod_level: form.mod_level.trim() || 'Stock',
     };
 
     if (editingVehicle) {
@@ -220,7 +220,7 @@ export default function VehiclesPage() {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP - DANH SÁCH XE (ĐÃ GỌN) ====================
+  // ==================== ĐÃ ĐĂNG NHẬP - DANH SÁCH XE ====================
   if (loading) {
     return <div className="text-center py-20 text-zinc-400">Đang tải danh sách xe...</div>;
   }
@@ -238,7 +238,6 @@ export default function VehiclesPage() {
         ) : (
           vehicles.map((v) => (
             <div key={v.id} className="flex gap-3">
-              {/* Card thông tin xe - ĐÃ GỌN */}
               <Card className="flex-1 bg-zinc-900 border-zinc-800">
                 <CardHeader className="pb-4">
                   <CardTitle className="text-4xl font-black">{v.nickname}</CardTitle>
@@ -260,7 +259,6 @@ export default function VehiclesPage() {
                 </CardContent>
               </Card>
 
-              {/* 2 nút Sửa & Xóa (giữ nguyên) */}
               <div className="flex flex-col gap-3 w-20">
                 <Button
                   variant="outline"
@@ -287,7 +285,7 @@ export default function VehiclesPage() {
         )}
       </div>
 
-      {/* Nút Thêm xe mới (giữ nguyên) */}
+      {/* Nút Thêm xe mới */}
       <div className="fixed bottom-20 left-4 right-4 md:static md:bottom-auto md:left-auto md:right-auto md:mt-8">
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
@@ -359,7 +357,7 @@ export default function VehiclesPage() {
                 </Select>
               </div>
 
-              {/* Năm sản xuất + Mức độ độ */}
+              {/* Năm sản xuất + Mức độ độ (đã đổi thành Input tự nhập) */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-base font-medium">Năm sản xuất</Label>
@@ -372,23 +370,13 @@ export default function VehiclesPage() {
                   />
                 </div>
                 <div>
-                  <Label className="text-base font-medium">Mức độ độ</Label>
-                  <Select value={form.mod_level} onValueChange={(v) => setForm({ ...form, mod_level: v })}>
-                    <SelectTrigger className="h-14 text-base mt-2 bg-zinc-950 border-zinc-700 focus:border-cyan-400">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Stock">Stock</SelectItem>
-                      <SelectItem value="Stage 1">PXL</SelectItem>
-                      <SelectItem value="Stage 2">CXN </SelectItem>
-                      <SelectItem value="God Mode">NPXG</SelectItem>
-                      <SelectItem value="God Mode">54zz</SelectItem>
-                      <SelectItem value="God Mode">62zz</SelectItem>
-                      <SelectItem value="God Mode">65zz</SelectItem>
-                      <SelectItem value="God Mode">68zz</SelectItem>
-                      <SelectItem value="God Mode">72+">72+</SelectItem>
-                    </SelectContent>
-                  </Select>
+                  <Label className="text-base font-medium">Mức độ độ (bài độ)</Label>
+                  <Input
+                    placeholder="Ví dụ: PXL Stage 3, 54zz, God Mode, CXN..."
+                    value={form.mod_level}
+                    onChange={(e) => setForm({ ...form, mod_level: e.target.value })}
+                    className="h-14 text-base mt-2 bg-zinc-950 border-zinc-700 focus:border-cyan-400"
+                  />
                 </div>
               </div>
             </div>
