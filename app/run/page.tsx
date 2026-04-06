@@ -112,7 +112,6 @@ const getRegionFromCoords = (lat: number, lng: number): string => {
   return 'Việt Nam';
 };
 
-// ==================== GPS STATUS ====================
 const getGPSStatusInfo = (accuracy: number, speedAvailable: boolean = false) => {
   if (!accuracy || accuracy > 10000) return { text: 'NO SIGNAL 📡', color: 'text-red-400' };
   if (accuracy < 5 && speedAvailable) return { text: 'Universe 🌌', color: 'text-emerald-400' };
@@ -152,9 +151,12 @@ export default function RunPage() {
     isNewPersonalBest: false,
   });
 
+  // === MỚI: Trạng thái tính rank background ===
+  const [isCalculatingRank, setIsCalculatingRank] = useState(false);
+
   const [isCheckingGPS, setIsCheckingGPS] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
-  const [isAutoCheckingOnStart, setIsAutoCheckingOnStart] = useState(false); // hiển thị "Đang kiểm tra" khi start mà chưa check
+  const [isAutoCheckingOnStart, setIsAutoCheckingOnStart] = useState(false);
 
   const resultRef = useRef<HTMLDivElement>(null);
   const speedHistory = useRef<{ timestamp: number; speed: number }[]>([]);
@@ -170,10 +172,9 @@ export default function RunPage() {
   const isCalibratedRef = useRef(false);
   const deviceMotionHandlerRef = useRef<((event: DeviceMotionEvent) => void) | null>(null);
   const lastSpeedUpdateRef = useRef(0);
-
   const maxSpeedRef = useRef(0);
 
-  // ==================== DEVICE MOTION ====================
+  // ==================== DEVICE MOTION & FUSED SPEED (giữ nguyên) ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
     if (event.acceleration) {
       accelerationRef.current = {
@@ -205,7 +206,6 @@ export default function RunPage() {
     }
   }, []);
 
-  // ==================== FUSED SPEED ====================
   const calculateFusedSpeed = useCallback((rawGpsSpeedMs: number | null | undefined): number => {
     const now = Date.now();
     const dt = (now - lastMotionTimeRef.current) / 1000 || 0.016;
@@ -224,7 +224,6 @@ export default function RunPage() {
     }
 
     let fusedSpeed = rawGpsKmh;
-
     if (isCalibrated) {
       const accel = accelerationRef.current;
       const horizontalAccel = Math.sqrt(accel.x * accel.x + accel.y * accel.y);
@@ -242,7 +241,7 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== INIT USER ====================
+  // ==================== INIT USER (giữ nguyên) ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
@@ -268,7 +267,7 @@ export default function RunPage() {
     });
   }, []);
 
-  // ==================== CHECK GPS (chỉ xác định 1 lần) ====================
+  // ==================== CHECK GPS (giữ nguyên) ====================
   const checkGPS = useCallback(async () => {
     setIsCheckingGPS(true);
     setErrorMessage('');
@@ -283,7 +282,7 @@ export default function RunPage() {
       (position) => {
         const { accuracy, speed, latitude, longitude } = position.coords;
         const regionName = getRegionFromCoords(latitude, longitude);
-        setCurrentRegion(regionName); // chỉ set 1 lần
+        setCurrentRegion(regionName);
 
         const info = getGPSStatusInfo(accuracy, speed !== null && speed !== undefined);
         setGpsStatus(info.text);
@@ -299,11 +298,9 @@ export default function RunPage() {
     );
   }, []);
 
-  // ==================== START RUN ====================
+  // ==================== START RUN (giữ nguyên) ====================
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting) return;
-
-    // Nếu chưa check GPS → tự động check và hiển thị "Đang kiểm tra"
     if (currentRegion === 'Đang xác định...') {
       setIsAutoCheckingOnStart(true);
       checkGPS().then(() => {
@@ -312,7 +309,6 @@ export default function RunPage() {
       });
       return;
     }
-
     startCountdown();
   }, [selectedVehicle, isStarting, currentRegion, checkGPS]);
 
@@ -340,7 +336,6 @@ export default function RunPage() {
       if (count <= 0) {
         clearInterval(countdownInterval);
 
-        // Xác định lại khu vực lần cuối (chỉ 1 lần)
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition((pos) => {
             const regionName = getRegionFromCoords(pos.coords.latitude, pos.coords.longitude);
@@ -355,7 +350,6 @@ export default function RunPage() {
             const now = Date.now();
             const { latitude, longitude, speed: gpsSpeedMs, accuracy } = position.coords;
 
-            // KHÔNG update khu vực liên tục nữa (giữ tĩnh)
             const targetSpeed = calculateFusedSpeed(gpsSpeedMs);
 
             if (now - lastSpeedUpdateRef.current > 80) {
@@ -404,7 +398,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN ====================
+  // ==================== STOP RUN - ĐÃ TỐI ƯU (HIỂN THỊ NGAY) ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -414,6 +408,7 @@ export default function RunPage() {
 
     const finalMaxSpeed = maxSpeedRef.current;
 
+    // === TÍNH TOÁN LOCAL NGAY TỨC ===
     let zeroToHundred = 0;
     if (speedHistory.current.length >= 2) {
       const sorted = [...speedHistory.current].sort((a, b) => a.timestamp - b.timestamp);
@@ -421,65 +416,87 @@ export default function RunPage() {
       if (reach100) zeroToHundred = parseFloat(((reach100.timestamp - sorted[0].timestamp) / 1000).toFixed(1));
     }
 
-    const userData = await getCurrentUser();
-    if (userData && selectedVehicle) {
-      await supabase.from('runs').insert({
-        user_id: userData.id,
-        vehicle_id: selectedVehicle.id,
-        max_speed: finalMaxSpeed,
-        zero_to_sixty: null,
-        zero_to_hundred: zeroToHundred,
-        distance_to_max_speed: null,
-        gps_data: [],
-        start_lat: null,
-        start_lng: null,
-        end_lat: null,
-        end_lng: null,
-        region: currentRegion,
-        gps_accuracy: 'Good',
-        is_low_accuracy: false,
-        ai_analysis: null,
-        ai_verified: false,
-      });
-    }
-
-    const today = new Date().toISOString().split('T')[0];
-    const { data: todayRuns } = await supabase
-      .from('runs')
-      .select(`max_speed, vehicles (vehicle_type)`)
-      .eq('region', currentRegion)
-      .gte('created_at', today);
-
-    const higherCount = (todayRuns || []).filter((run: any) =>
-      run.vehicles?.vehicle_type === selectedVehicle?.vehicle_type && run.max_speed > finalMaxSpeed
-    ).length;
-
-    const rankInRegionToday = higherCount + 1;
-
-    const { data: prevBest } = await supabase
-      .from('runs')
-      .select('max_speed')
-      .eq('user_id', userData?.id)
-      .order('max_speed', { ascending: false })
-      .limit(1);
-
-    const previousMax = prevBest?.[0]?.max_speed || 0;
-    const isNewPersonalBest = finalMaxSpeed > previousMax;
-    const personalBestImprovement = isNewPersonalBest ? parseFloat((finalMaxSpeed - previousMax).toFixed(1)) : 0;
-
     const now = new Date();
-    setRunResult({
+    const initialResult = {
       maxSpeed: finalMaxSpeed,
       zeroToHundred: zeroToHundred,
       distance: Math.round(finalMaxSpeed * 2.5),
       region: currentRegion,
       date: now.toLocaleString('vi-VN', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      rankInRegionToday: rankInRegionToday,
-      personalBestImprovement: personalBestImprovement,
-      isNewPersonalBest: isNewPersonalBest,
-    });
+      rankInRegionToday: 0,
+      personalBestImprovement: 0,
+      isNewPersonalBest: false,
+    };
 
+    // HIỂN THỊ MODAL NGAY LẬP TỨC
+    setRunResult(initialResult);
     setShowResult(true);
+    setIsCalculatingRank(true);
+
+    // === XỬ LÝ BACKGROUND (không block UI) ===
+    const processInBackground = async () => {
+      try {
+        const userData = await getCurrentUser();
+        if (!userData || !selectedVehicle) return;
+
+        await supabase.from('runs').insert({
+          user_id: userData.id,
+          vehicle_id: selectedVehicle.id,
+          max_speed: finalMaxSpeed,
+          zero_to_sixty: null,
+          zero_to_hundred: zeroToHundred,
+          distance_to_max_speed: null,
+          gps_data: [],
+          start_lat: null,
+          start_lng: null,
+          end_lat: null,
+          end_lng: null,
+          region: currentRegion,
+          gps_accuracy: 'Good',
+          is_low_accuracy: false,
+          ai_analysis: null,
+          ai_verified: false,
+        });
+
+        const today = new Date().toISOString().split('T')[0];
+        const { data: todayRuns } = await supabase
+          .from('runs')
+          .select(`max_speed, vehicles (vehicle_type)`)
+          .eq('region', currentRegion)
+          .gte('created_at', today);
+
+        const higherCount = (todayRuns || []).filter((run: any) =>
+          run.vehicles?.vehicle_type === selectedVehicle?.vehicle_type && run.max_speed > finalMaxSpeed
+        ).length;
+
+        const rankInRegionToday = higherCount + 1;
+
+        const { data: prevBest } = await supabase
+          .from('runs')
+          .select('max_speed')
+          .eq('user_id', userData.id)
+          .order('max_speed', { ascending: false })
+          .limit(1);
+
+        const previousMax = prevBest?.[0]?.max_speed || 0;
+        const isNewPersonalBest = finalMaxSpeed > previousMax;
+        const personalBestImprovement = isNewPersonalBest ? parseFloat((finalMaxSpeed - previousMax).toFixed(1)) : 0;
+
+        // Update UI sau khi có data đầy đủ
+        setRunResult(prev => ({
+          ...prev,
+          rankInRegionToday,
+          personalBestImprovement,
+          isNewPersonalBest,
+        }));
+      } catch (err) {
+        console.error('Lỗi khi lưu run:', err);
+      } finally {
+        setIsCalculatingRank(false);
+      }
+    };
+
+    processInBackground();
   }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion]);
 
   const resetRun = useCallback(() => {
@@ -499,17 +516,14 @@ export default function RunPage() {
     displayedSpeedRef.current = 0;
     setIsStarting(false);
     setIsAutoCheckingOnStart(false);
+    setIsCalculatingRank(false);
   }, [watchId, stopDeviceMotion]);
 
   const downloadResultAsImage = useCallback(async () => {
     const card = resultRef.current;
     if (!card) return;
     try {
-      const canvas = await html2canvas(card, {
-        scale: 2,
-        backgroundColor: '#18181b',
-        logging: false,
-      });
+      const canvas = await html2canvas(card, { scale: 2, backgroundColor: '#18181b', logging: false });
       const link = document.createElement('a');
       link.download = `TopRaceVN_${new Date().toISOString().slice(0,19)}.png`;
       link.href = canvas.toDataURL('image/png');
@@ -519,7 +533,6 @@ export default function RunPage() {
     }
   }, []);
 
-  // ==================== COUNTDOWN DISPLAY (chữ nhỏ hơn) ====================
   const getBigDisplay = () => {
     if (isAutoCheckingOnStart) return 'Đang kiểm tra...';
     if (countdown === null) return currentSpeed;
@@ -528,7 +541,7 @@ export default function RunPage() {
     return countdown;
   };
 
-  // ==================== GIAO DIỆN ====================
+  // ==================== GIAO DIỆN (chỉ sửa phần modal kết quả) ====================
   if (isAuthLoading) {
     return <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-green-500">Đang kiểm tra đăng nhập...</div>;
   }
@@ -543,10 +556,7 @@ export default function RunPage() {
             </div>
             <h1 className="text-3xl font-black mb-2">BẮT ĐẦU RUN</h1>
             <p className="text-zinc-400 mb-8">Đăng nhập để bắt đầu ghi tốc độ và lưu kết quả</p>
-            <Button
-              onClick={handleGoogleLogin}
-              className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
-            >
+            <Button onClick={handleGoogleLogin} className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3">
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Google Login
             </Button>
@@ -561,7 +571,7 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-      {/* CARD TỐC ĐỘ LIVE + COUNTDOWN (chữ nhỏ hơn) */}
+      {/* CARD TỐC ĐỘ LIVE */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
         <CardContent className="p-10 text-center">
           <p className="text-zinc-400 text-base mb-3">SPEED</p>
@@ -588,14 +598,7 @@ export default function RunPage() {
         </div>
       </div>
 
-      {/* NÚT CHECK GPS */}
-      <Button
-        onClick={checkGPS}
-        disabled={isCheckingGPS}
-        className={`w-full py-6 text-lg font-semibold rounded-2xl transition-all ${
-          isCheckingGPS ? 'bg-zinc-700 text-zinc-400' : 'bg-white hover:bg-zinc-100 text-zinc-900'
-        }`}
-      >
+      <Button onClick={checkGPS} disabled={isCheckingGPS} className={`w-full py-6 text-lg font-semibold rounded-2xl transition-all ${isCheckingGPS ? 'bg-zinc-700 text-zinc-400' : 'bg-white hover:bg-zinc-100 text-zinc-900'}`}>
         {isCheckingGPS ? <>Đang kiểm tra GPS...</> : 'Kiểm tra GPS & Khu vực'}
       </Button>
 
@@ -619,6 +622,7 @@ export default function RunPage() {
         ) : null}
       </div>
 
+      {/* Chọn xe */}
       <Dialog>
         <DialogTrigger asChild>
           <Button variant="outline" className="w-full mt-3 py-8 text-2xl">
@@ -633,12 +637,7 @@ export default function RunPage() {
           </DialogHeader>
           <div className="space-y-3 max-h-80 overflow-auto py-4">
             {vehicles.map((v) => (
-              <Button
-                key={v.id}
-                variant={selectedVehicle?.id === v.id ? "default" : "outline"}
-                className="w-full justify-start text-2xl py-7"
-                onClick={() => setSelectedVehicle(v)}
-              >
+              <Button key={v.id} variant={selectedVehicle?.id === v.id ? "default" : "outline"} className="w-full justify-start text-2xl py-7" onClick={() => setSelectedVehicle(v)}>
                 {v.nickname} — {v.brand} {v.model}
               </Button>
             ))}
@@ -646,7 +645,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* BẢNG KẾT QUẢ - LUÔN HIỂN THỊ (không báo lỗi) */}
+      {/* BẢNG KẾT QUẢ - HIỂN THỊ NGAY */}
       {showResult && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4">
           <Card ref={resultRef} className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
@@ -683,7 +682,12 @@ export default function RunPage() {
                 {runResult.maxSpeed < 40 ? (
                   <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG</p>
                 ) : (
-                  <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
+                  <>
+                    <p className="text-6xl font-black text-green-400">
+                      {isCalculatingRank ? '...' : `#${runResult.rankInRegionToday}`}
+                    </p>
+                    {isCalculatingRank && <p className="text-zinc-500 text-sm mt-1">Đang tính rank...</p>}
+                  </>
                 )}
               </div>
 
