@@ -49,28 +49,26 @@ const getRegionFromCoords = (lat: number, lng: number): string => {
   if (lat >= 15.9 && lat <= 16.2 && lng >= 108.1 && lng <= 108.4) return 'Quảng Nam';
   // Thừa Thiên Huế
   if (lat >= 16.0 && lat <= 16.5 && lng >= 107.5 && lng <= 108.0) return 'Thừa Thiên Huế';
-  // Khánh Hòa (Nha Trang)
+  // Khánh Hòa
   if (lat >= 11.8 && lat <= 12.5 && lng >= 108.9 && lng <= 109.5) return 'Khánh Hòa';
-  // Bình Thuận (Phan Thiết)
+  // Bình Thuận
   if (lat >= 10.9 && lat <= 11.3 && lng >= 108.7 && lng <= 109.2) return 'Bình Thuận';
-  // Quảng Ninh (Hạ Long)
+  // Quảng Ninh
   if (lat >= 21.8 && lat <= 22.3 && lng >= 106.5 && lng <= 107.0) return 'Quảng Ninh';
-  // Bình Định (Quy Nhơn)
+  // Bình Định
   if (lat >= 13.5 && lat <= 14.0 && lng >= 108.9 && lng <= 109.4) return 'Bình Định';
   // Cần Thơ
   if (lat >= 9.8 && lat <= 10.3 && lng >= 105.8 && lng <= 106.3) return 'Cần Thơ';
   // Kiên Giang
   if (lat >= 9.0 && lat <= 9.8 && lng >= 104.5 && lng <= 105.5) return 'Kiên Giang';
 
-  // ==================== PHẦN MỞ RỘNG ĐẦY ĐỦ 63 TỈNH/THÀNH ====================
+  // ==================== 63 TỈNH/THÀNH CÒN LẠI ====================
   if (lat >= 10.2 && lat <= 10.8 && lng >= 105.0 && lng <= 105.8) return 'An Giang';
   if (lat >= 10.0 && lat <= 10.4 && lng >= 105.4 && lng <= 106.0) return 'Bạc Liêu';
   if (lat >= 21.0 && lat <= 21.8 && lng >= 105.8 && lng <= 107.0) return 'Bắc Giang';
   if (lat >= 21.8 && lat <= 22.6 && lng >= 105.5 && lng <= 106.5) return 'Bắc Kạn';
   if (lat >= 10.0 && lat <= 10.6 && lng >= 106.0 && lng <= 106.8) return 'Bến Tre';
-  if (lat >= 13.5 && lat <= 14.8 && lng >= 108.5 && lng <= 109.5) return 'Bình Định';
   if (lat >= 11.4 && lat <= 12.2 && lng >= 106.8 && lng <= 108.0) return 'Bình Phước';
-  if (lat >= 10.5 && lat <= 11.5 && lng >= 107.5 && lng <= 109.0) return 'Bình Thuận';
   if (lat >= 8.5 && lat <= 9.5 && lng >= 104.5 && lng <= 105.5) return 'Cà Mau';
   if (lat >= 22.5 && lat <= 23.5 && lng >= 105.5 && lng <= 106.5) return 'Cao Bằng';
   if (lat >= 11.5 && lat <= 13.0 && lng >= 107.5 && lng <= 109.0) return 'Đắk Lắk';
@@ -111,7 +109,6 @@ const getRegionFromCoords = (lat: number, lng: number): string => {
   if (lat >= 20.8 && lat <= 21.5 && lng >= 105.2 && lng <= 106.0) return 'Vĩnh Phúc';
   if (lat >= 21.0 && lat <= 22.0 && lng >= 104.0 && lng <= 105.0) return 'Yên Bái';
 
-  // Mặc định nếu không khớp chính xác
   return 'Việt Nam';
 };
 
@@ -153,11 +150,11 @@ export default function RunPage() {
     rankInRegionToday: 0,
     personalBestImprovement: 0,
     isNewPersonalBest: false,
-    isValidRun: true,
   });
 
   const [isCheckingGPS, setIsCheckingGPS] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
+  const [isAutoCheckingOnStart, setIsAutoCheckingOnStart] = useState(false); // hiển thị "Đang kiểm tra" khi start mà chưa check
 
   const resultRef = useRef<HTMLDivElement>(null);
   const speedHistory = useRef<{ timestamp: number; speed: number }[]>([]);
@@ -208,7 +205,7 @@ export default function RunPage() {
     }
   }, []);
 
-  // ==================== FUSED SPEED (đã fix vẫy tay) ====================
+  // ==================== FUSED SPEED ====================
   const calculateFusedSpeed = useCallback((rawGpsSpeedMs: number | null | undefined): number => {
     const now = Date.now();
     const dt = (now - lastMotionTimeRef.current) / 1000 || 0.016;
@@ -271,7 +268,7 @@ export default function RunPage() {
     });
   }, []);
 
-  // ==================== CHECK GPS + XÁC ĐỊNH KHU VỰC NGAY ====================
+  // ==================== CHECK GPS (chỉ xác định 1 lần) ====================
   const checkGPS = useCallback(async () => {
     setIsCheckingGPS(true);
     setErrorMessage('');
@@ -286,7 +283,7 @@ export default function RunPage() {
       (position) => {
         const { accuracy, speed, latitude, longitude } = position.coords;
         const regionName = getRegionFromCoords(latitude, longitude);
-        setCurrentRegion(regionName);
+        setCurrentRegion(regionName); // chỉ set 1 lần
 
         const info = getGPSStatusInfo(accuracy, speed !== null && speed !== undefined);
         setGpsStatus(info.text);
@@ -302,9 +299,24 @@ export default function RunPage() {
     );
   }, []);
 
-  // ==================== START RUN + COUNTDOWN ĐẶC BIỆT ====================
+  // ==================== START RUN ====================
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting) return;
+
+    // Nếu chưa check GPS → tự động check và hiển thị "Đang kiểm tra"
+    if (currentRegion === 'Đang xác định...') {
+      setIsAutoCheckingOnStart(true);
+      checkGPS().then(() => {
+        setIsAutoCheckingOnStart(false);
+        startCountdown();
+      });
+      return;
+    }
+
+    startCountdown();
+  }, [selectedVehicle, isStarting, currentRegion, checkGPS]);
+
+  const startCountdown = useCallback(() => {
     setIsStarting(true);
     setErrorMessage('');
     setShowResult(false);
@@ -328,7 +340,7 @@ export default function RunPage() {
       if (count <= 0) {
         clearInterval(countdownInterval);
 
-        // Xác định lại khu vực lần cuối trước khi chạy
+        // Xác định lại khu vực lần cuối (chỉ 1 lần)
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition((pos) => {
             const regionName = getRegionFromCoords(pos.coords.latitude, pos.coords.longitude);
@@ -343,9 +355,7 @@ export default function RunPage() {
             const now = Date.now();
             const { latitude, longitude, speed: gpsSpeedMs, accuracy } = position.coords;
 
-            const regionName = getRegionFromCoords(latitude, longitude);
-            setCurrentRegion(regionName);
-
+            // KHÔNG update khu vực liên tục nữa (giữ tĩnh)
             const targetSpeed = calculateFusedSpeed(gpsSpeedMs);
 
             if (now - lastSpeedUpdateRef.current > 80) {
@@ -392,9 +402,9 @@ export default function RunPage() {
         setIsStarting(false);
       }
     }, 1000);
-  }, [selectedVehicle, isStarting, calculateFusedSpeed, startDeviceMotion]);
+  }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN + LOGIC VÔ HẠNG ====================
+  // ==================== STOP RUN ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -404,26 +414,6 @@ export default function RunPage() {
 
     const finalMaxSpeed = maxSpeedRef.current;
 
-    // Chỉ cần > 1 km/h và có khu vực hợp lệ
-    const isRegionValid = currentRegion !== 'Đang xác định...' && currentRegion !== 'Việt Nam';
-    const isValidRun = isRegionValid && finalMaxSpeed >= 1;
-
-    if (!isValidRun) {
-      setRunResult({
-        maxSpeed: finalMaxSpeed,
-        zeroToHundred: 0,
-        distance: 0,
-        region: currentRegion,
-        date: new Date().toLocaleString('vi-VN'),
-        rankInRegionToday: 0,
-        personalBestImprovement: 0,
-        isNewPersonalBest: false,
-        isValidRun: false,
-      });
-      setShowResult(true);
-      return;
-    }
-
     let zeroToHundred = 0;
     if (speedHistory.current.length >= 2) {
       const sorted = [...speedHistory.current].sort((a, b) => a.timestamp - b.timestamp);
@@ -432,26 +422,26 @@ export default function RunPage() {
     }
 
     const userData = await getCurrentUser();
-    if (!userData || !selectedVehicle) return;
-
-    await supabase.from('runs').insert({
-      user_id: userData.id,
-      vehicle_id: selectedVehicle.id,
-      max_speed: finalMaxSpeed,
-      zero_to_sixty: null,
-      zero_to_hundred: zeroToHundred,
-      distance_to_max_speed: null,
-      gps_data: [],
-      start_lat: null,
-      start_lng: null,
-      end_lat: null,
-      end_lng: null,
-      region: currentRegion,
-      gps_accuracy: 'Good',
-      is_low_accuracy: false,
-      ai_analysis: null,
-      ai_verified: false,
-    });
+    if (userData && selectedVehicle) {
+      await supabase.from('runs').insert({
+        user_id: userData.id,
+        vehicle_id: selectedVehicle.id,
+        max_speed: finalMaxSpeed,
+        zero_to_sixty: null,
+        zero_to_hundred: zeroToHundred,
+        distance_to_max_speed: null,
+        gps_data: [],
+        start_lat: null,
+        start_lng: null,
+        end_lat: null,
+        end_lng: null,
+        region: currentRegion,
+        gps_accuracy: 'Good',
+        is_low_accuracy: false,
+        ai_analysis: null,
+        ai_verified: false,
+      });
+    }
 
     const today = new Date().toISOString().split('T')[0];
     const { data: todayRuns } = await supabase
@@ -461,7 +451,7 @@ export default function RunPage() {
       .gte('created_at', today);
 
     const higherCount = (todayRuns || []).filter((run: any) =>
-      run.vehicles?.vehicle_type === selectedVehicle.vehicle_type && run.max_speed > finalMaxSpeed
+      run.vehicles?.vehicle_type === selectedVehicle?.vehicle_type && run.max_speed > finalMaxSpeed
     ).length;
 
     const rankInRegionToday = higherCount + 1;
@@ -469,7 +459,7 @@ export default function RunPage() {
     const { data: prevBest } = await supabase
       .from('runs')
       .select('max_speed')
-      .eq('user_id', userData.id)
+      .eq('user_id', userData?.id)
       .order('max_speed', { ascending: false })
       .limit(1);
 
@@ -487,7 +477,6 @@ export default function RunPage() {
       rankInRegionToday: rankInRegionToday,
       personalBestImprovement: personalBestImprovement,
       isNewPersonalBest: isNewPersonalBest,
-      isValidRun: true,
     });
 
     setShowResult(true);
@@ -509,6 +498,7 @@ export default function RunPage() {
     smoothedSpeedRef.current = 0;
     displayedSpeedRef.current = 0;
     setIsStarting(false);
+    setIsAutoCheckingOnStart(false);
   }, [watchId, stopDeviceMotion]);
 
   const downloadResultAsImage = useCallback(async () => {
@@ -529,8 +519,9 @@ export default function RunPage() {
     }
   }, []);
 
-  // ==================== COUNTDOWN DISPLAY LOGIC ====================
+  // ==================== COUNTDOWN DISPLAY (chữ nhỏ hơn) ====================
   const getBigDisplay = () => {
+    if (isAutoCheckingOnStart) return 'Đang kiểm tra...';
     if (countdown === null) return currentSpeed;
     if (countdown === 5) return currentRegion;
     if (countdown === 4) return 'READY';
@@ -570,19 +561,15 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-      {/* CARD TỐC ĐỘ LIVE + COUNTDOWN ĐẶC BIỆT */}
+      {/* CARD TỐC ĐỘ LIVE + COUNTDOWN (chữ nhỏ hơn) */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
         <CardContent className="p-10 text-center">
           <p className="text-zinc-400 text-base mb-3">SPEED</p>
-          <div className="text-[clamp(110px,26vw,170px)] font-black text-green-500 leading-none min-h-[170px] flex items-center justify-center">
+          <div className="text-[clamp(80px,20vw,140px)] font-black text-green-500 leading-none min-h-[160px] flex items-center justify-center">
             {getBigDisplay()}
           </div>
           <p className="text-zinc-400 text-4xl mt-2">
-            {countdown !== null
-              ? countdown === 5 || countdown === 4
-                ? ''
-                : 'GET READY'
-              : 'km/h'}
+            {countdown !== null && countdown !== 5 && countdown !== 4 ? 'GET READY' : ''}
           </p>
         </CardContent>
       </Card>
@@ -659,7 +646,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* BẢNG KẾT QUẢ */}
+      {/* BẢNG KẾT QUẢ - LUÔN HIỂN THỊ (không báo lỗi) */}
       {showResult && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4">
           <Card ref={resultRef} className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
@@ -667,11 +654,9 @@ export default function RunPage() {
               <div className="flex items-center justify-between">
                 <div className="w-6" />
                 <h2 className="text-3xl font-bold text-green-500 tracking-tight">TopRaceVN</h2>
-                {runResult.isValidRun && (
-                  <button onClick={downloadResultAsImage} className="text-zinc-400 hover:text-green-400 transition-colors">
-                    <Download className="w-6 h-6" />
-                  </button>
-                )}
+                <button onClick={downloadResultAsImage} className="text-zinc-400 hover:text-green-400 transition-colors">
+                  <Download className="w-6 h-6" />
+                </button>
               </div>
 
               <div className="text-center">
@@ -681,52 +666,42 @@ export default function RunPage() {
                 <p className="text-xs text-zinc-500 mt-2">{runResult.date}</p>
               </div>
 
-              {!runResult.isValidRun ? (
-                <div className="text-center py-8 bg-red-950/50 border border-red-800 rounded-3xl">
-                  <AlertCircle className="mx-auto h-12 w-12 text-red-400 mb-4" />
-                  <p className="text-red-400 text-xl font-semibold">Run không hợp lệ</p>
-                  <p className="text-zinc-400 mt-2">Khu vực chưa được xác định rõ ràng.</p>
+              <div className="grid grid-cols-2 gap-8 border-t border-zinc-800 pt-8">
+                <div className="text-center">
+                  <p className="text-zinc-400 text-sm">0 - 100 km/h</p>
+                  <p className="text-5xl font-bold text-cyan-400">
+                    {runResult.zeroToHundred > 0 ? `${runResult.zeroToHundred}s` : '--'}
+                  </p>
                 </div>
-              ) : (
-                <>
-                  <div className="grid grid-cols-2 gap-8 border-t border-zinc-800 pt-8">
-                    <div className="text-center">
-                      <p className="text-zinc-400 text-sm">0 - 100 km/h</p>
-                      <p className="text-5xl font-bold text-cyan-400">
-                        {runResult.zeroToHundred > 0 ? `${runResult.zeroToHundred}s` : '--'}
-                      </p>
-                    </div>
-                    <div className="text-center">
-                      <p className="text-zinc-400 text-sm">Khu vực</p>
-                      <p className="font-medium text-2xl">{runResult.region}</p>
-                    </div>
-                  </div>
+                <div className="text-center">
+                  <p className="text-zinc-400 text-sm">Khu vực</p>
+                  <p className="font-medium text-2xl">{runResult.region}</p>
+                </div>
+              </div>
 
-                  <div className="text-center">
-                    {runResult.maxSpeed < 40 ? (
-                      <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG</p>
-                    ) : (
-                      <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
-                    )}
-                  </div>
+              <div className="text-center">
+                {runResult.maxSpeed < 40 ? (
+                  <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG</p>
+                ) : (
+                  <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
+                )}
+              </div>
 
-                  <div className="space-y-3 text-left border-t border-zinc-800 pt-6">
-                    {runResult.isNewPersonalBest && (
-                      <div className="flex justify-between items-center bg-zinc-800 rounded-2xl px-5 py-4">
-                        <span className="text-green-400 font-medium">🚀 Kỷ lục cá nhân</span>
-                        <span className="text-green-400">+{runResult.personalBestImprovement.toFixed(1)} km/h</span>
-                      </div>
-                    )}
+              <div className="space-y-3 text-left border-t border-zinc-800 pt-6">
+                {runResult.isNewPersonalBest && (
+                  <div className="flex justify-between items-center bg-zinc-800 rounded-2xl px-5 py-4">
+                    <span className="text-green-400 font-medium">🚀 Kỷ lục cá nhân</span>
+                    <span className="text-green-400">+{runResult.personalBestImprovement.toFixed(1)} km/h</span>
                   </div>
-                </>
-              )}
+                )}
+              </div>
 
               <div className="flex gap-4 pt-4">
                 <Button onClick={resetRun} variant="outline" className="flex-1 py-6 text-base">
                   <RotateCcw className="mr-2 h-5 w-5" />
                   Again
                 </Button>
-                {runResult.isValidRun && (
+                {runResult.maxSpeed >= 40 && (
                   <Button onClick={() => window.location.href = '/leaderboard'} className="flex-1 py-6 text-base">
                     Rank
                   </Button>
