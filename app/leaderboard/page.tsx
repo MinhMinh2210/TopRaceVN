@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Trophy, Car, Medal } from 'lucide-react';
+import { Trophy, Medal } from 'lucide-react';
 
 export default function LeaderboardPage() {
   const [user, setUser] = useState<any>(null);
@@ -40,7 +40,7 @@ export default function LeaderboardPage() {
     });
   }, []);
 
-  // ==================== LOAD LEADERBOARD DATA ====================
+  // ==================== LOAD LEADERBOARD DATA (TỐI ƯU) ====================
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -57,6 +57,9 @@ export default function LeaderboardPage() {
         vehicles (
           nickname,
           vehicle_type
+        ),
+        profiles!user_id (
+          avatar_url
         )
       `);
         
@@ -84,11 +87,13 @@ export default function LeaderboardPage() {
       return;
     }
 
+    // Tối ưu: format data một lần duy nhất
     const formatted = (result || []).map((item: any, index: number) => ({
       rank: index + 1,
       user_id: item.user_id,
       nickname: item.vehicles?.nickname || 'Không có tên',
       vehicle_type: item.vehicles?.vehicle_type || '',
+      avatar_url: item.profiles?.avatar_url || null,
       value: activeTab === 'speed' ? item.max_speed : item.zero_to_hundred,
       region: item.region || 'Không xác định',
       created_at: item.created_at,
@@ -103,6 +108,9 @@ export default function LeaderboardPage() {
       loadData();
     }
   }, [loadData]);
+
+  // Memoized data để tránh re-render không cần thiết
+  const memoizedData = useMemo(() => data, [data]);
 
   // ==================== LOADING AUTH ====================
   if (isAuthLoading) {
@@ -146,7 +154,7 @@ export default function LeaderboardPage() {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP - BẢNG XẾP HẠNG (UI giống TripRank) ====================
+  // ==================== ĐÃ ĐĂNG NHẬP - BẢNG XẾP HẠNG ====================
   return (
     <div className="min-h-screen bg-zinc-950 pb-20 px-4">
       <div className="max-w-2xl mx-auto">
@@ -180,7 +188,6 @@ export default function LeaderboardPage() {
                 <SelectItem value="Hà Nội">Hà Nội</SelectItem>
                 <SelectItem value="Đà Nẵng">Đà Nẵng</SelectItem>
                 <SelectItem value="Cần Thơ">Cần Thơ</SelectItem>
-
                 <SelectItem value="An Giang">An Giang</SelectItem>
                 <SelectItem value="Bà Rịa - Vũng Tàu">Bà Rịa - Vũng Tàu</SelectItem>
                 <SelectItem value="Bạc Liêu">Bạc Liêu</SelectItem>
@@ -257,11 +264,11 @@ export default function LeaderboardPage() {
           </div>
 
           <TabsContent value="speed" className="mt-2">
-            <LeaderboardTable data={data} type="speed" loading={loading} user={user} />
+            <LeaderboardTable data={memoizedData} type="speed" loading={loading} user={user} />
           </TabsContent>
 
           <TabsContent value="acceleration" className="mt-2">
-            <LeaderboardTable data={data} type="acceleration" loading={loading} user={user} />
+            <LeaderboardTable data={memoizedData} type="acceleration" loading={loading} user={user} />
           </TabsContent>
         </Tabs>
       </div>
@@ -337,9 +344,22 @@ function LeaderboardTable({
               )}
             </div>
 
-            {/* Car thumbnail (placeholder - giống hình TripRank) */}
-            <div className="w-14 h-14 flex-shrink-0 bg-zinc-800 rounded-2xl overflow-hidden border border-zinc-700 flex items-center justify-center">
-              <Car className="w-9 h-9 text-emerald-400" />
+            {/* USER AVATAR (thay vì icon xe) - VIP look, bo góc nhẹ */}
+            <div className="w-14 h-14 flex-shrink-0 rounded-3xl overflow-hidden border-2 border-zinc-700 bg-zinc-800">
+              <img
+                src={item.avatar_url || `https://avatar.vercel.sh/${item.user_id}?size=128`}
+                alt={item.nickname}
+                className="w-full h-full object-cover transition-transform group-hover:scale-110"
+                onError={(e) => {
+                  // Fallback nếu avatar lỗi
+                  e.currentTarget.style.display = 'none';
+                  e.currentTarget.parentElement!.innerHTML = `
+                    <div class="w-full h-full flex items-center justify-center bg-zinc-700 text-zinc-400">
+                      👤
+                    </div>
+                  `;
+                }}
+              />
             </div>
 
             {/* Main info */}
