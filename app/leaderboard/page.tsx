@@ -40,7 +40,7 @@ export default function LeaderboardPage() {
     });
   }, []);
 
-  // ==================== LOAD LEADERBOARD DATA (FILTER HỆ XE CHUẨN) ====================
+  // ==================== LOAD LEADERBOARD DATA ====================
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -65,7 +65,6 @@ export default function LeaderboardPage() {
         
     if (regionFilter !== 'all') query = query.eq('region', regionFilter);
 
-    // Server-side filter hệ xe (giữ nguyên để tối ưu tốc độ)
     if (typeFilter !== 'all') {
       query = query.eq('vehicles.vehicle_type', typeFilter);
     }
@@ -82,7 +81,7 @@ export default function LeaderboardPage() {
         .gt('zero_to_hundred', 0);
     }
 
-    const { data: result, error } = await query.limit(50);
+    const { data: result, error } = await query.limit(100); // tăng limit để có đủ data group
 
     if (error) {
       console.error('Lỗi load leaderboard:', error);
@@ -91,8 +90,6 @@ export default function LeaderboardPage() {
       return;
     }
 
-    // CLIENT-SIDE FILTER LÀM LỚP BẢO VỆ - ĐẢM BẢO CHỈ LẤY ĐÚNG HỆ XE
-    // (fix lỗi "ấn xe số vẫn hiện xe ga")
     let filteredResult = result || [];
     if (typeFilter !== 'all') {
       filteredResult = filteredResult.filter((item: any) => 
@@ -100,8 +97,33 @@ export default function LeaderboardPage() {
       );
     }
 
+    // ==================== LẤY KẾT QUẢ TỐT NHẤT CỦA MỖI USER ====================
+    const bestPerUser = new Map();
+
+    filteredResult.forEach((item: any) => {
+      const userId = item.user_id;
+      if (!userId) return;
+
+      const existing = bestPerUser.get(userId);
+
+      if (activeTab === 'speed') {
+        // Lấy max_speed cao nhất
+        if (!existing || item.max_speed > existing.max_speed) {
+          bestPerUser.set(userId, item);
+        }
+      } else {
+        // Lấy zero_to_hundred thấp nhất (nhanh nhất)
+        if (!existing || item.zero_to_hundred < existing.zero_to_hundred) {
+          bestPerUser.set(userId, item);
+        }
+      }
+    });
+
+    // Convert Map thành array
+    const bestRecords = Array.from(bestPerUser.values());
+
     // Format data
-    const formatted = filteredResult.map((item: any, index: number) => ({
+    const formatted = bestRecords.map((item: any, index: number) => ({
       rank: index + 1,
       user_id: item.user_id,
       nickname: item.vehicles?.nickname || 'Không có tên',
@@ -122,17 +144,16 @@ export default function LeaderboardPage() {
     }
   }, [loadData]);
 
-  // Memoized data để tránh re-render không cần thiết
   const memoizedData = useMemo(() => data, [data]);
 
   // ==================== LOADING AUTH ====================
-if (isAuthLoading) {
-  return (
-    <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
-      Đang kiểm tra đăng nhập...
-    </div>
-  );
-}
+  if (isAuthLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
+        Đang kiểm tra đăng nhập...
+      </div>
+    );
+  }
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
@@ -262,7 +283,6 @@ if (isAuthLoading) {
               </SelectContent>
             </Select>
 
-            {/* Filter hệ xe - giá trị chuẩn theo DB */}
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="flex-1 bg-zinc-900 border-zinc-700">
                 <SelectValue />
@@ -328,7 +348,6 @@ function LeaderboardTable({
         const isCurrentUser = item.user_id === user?.id;
         const rank = item.rank;
 
-        // Màu medal top 3
         let medalColor = 'text-zinc-400';
         if (rank === 1) medalColor = 'text-yellow-400';
         else if (rank === 2) medalColor = 'text-zinc-300';
@@ -359,7 +378,7 @@ function LeaderboardTable({
               )}
             </div>
 
-            {/* USER AVATAR (bo góc nhẹ, VIP) */}
+            {/* USER AVATAR */}
             <div className="w-14 h-14 flex-shrink-0 rounded-3xl overflow-hidden border-2 border-zinc-700 bg-zinc-800">
               <img
                 src={item.avatar_url || `https://avatar.vercel.sh/${item.user_id}?size=128`}
