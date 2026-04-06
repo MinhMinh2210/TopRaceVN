@@ -25,7 +25,7 @@ type Vehicle = {
   vehicle_type: string;
 };
 
-// ==================== REAL REVERSE GEOCODING ====================
+// ==================== REAL REVERSE GEOCODING (ưu tiên tên tỉnh/thành phố cụ thể) ====================
 const getRealRegionName = async (lat: number, lng: number): Promise<string> => {
   try {
     const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1&accept-language=vi`;
@@ -34,12 +34,14 @@ const getRealRegionName = async (lat: number, lng: number): Promise<string> => {
     });
     const data = await res.json();
     const address = data.address || {};
+
+    // Ưu tiên tên tỉnh/thành phố cụ thể (không rơi về "Việt Nam")
     return (
+      address.province ||
       address.city ||
       address.town ||
-      address.province ||
       address.state ||
-      address.region ||
+      address.district ||
       'Việt Nam'
     );
   } catch (err) {
@@ -75,7 +77,6 @@ export default function RunPage() {
   const [watchId, setWatchId] = useState<number | null>(null);
 
   const [currentRegion, setCurrentRegion] = useState<string>('Đang xác định...');
-  const [gpsReadyStatus, setGpsReadyStatus] = useState<'chua' | 'san_sang' | 'dang_chay'>('chua'); // chua = Chưa sẵn sàng, san_sang = Sẵn sàng, dang_chay = Đang chạy
 
   const [showResult, setShowResult] = useState(false);
   const [runResult, setRunResult] = useState({
@@ -142,7 +143,7 @@ export default function RunPage() {
     }
   }, []);
 
-  // ==================== FUSED SPEED - ĐÃ FIX VẪY TAY KHÔNG NHẢY ====================
+  // ==================== FUSED SPEED (đã fix vẫy tay) ====================
   const calculateFusedSpeed = useCallback((rawGpsSpeedMs: number | null | undefined): number => {
     const now = Date.now();
     const dt = (now - lastMotionTimeRef.current) / 1000 || 0.016;
@@ -153,7 +154,6 @@ export default function RunPage() {
     const isCalibrated = timeSinceStart > 5000;
     isCalibratedRef.current = isCalibrated;
 
-    // FIX 1: Nếu GPS speed thấp (đứng yên hoặc vẫy tay) → BỎ QUA hoàn toàn acceleration
     if (rawGpsKmh < 15) {
       smoothedSpeedRef.current = rawGpsKmh;
       let finalSpeed = Math.max(0, Math.round(rawGpsKmh));
@@ -166,15 +166,12 @@ export default function RunPage() {
     if (isCalibrated) {
       const accel = accelerationRef.current;
       const horizontalAccel = Math.sqrt(accel.x * accel.x + accel.y * accel.y);
-
-      // FIX 2: Deadzone - bỏ qua rung lắc nhỏ (vẫy tay)
       if (horizontalAccel > 0.4) {
         const deltaV = horizontalAccel * dt * 3.6;
         fusedSpeed = rawGpsKmh * 0.85 + (smoothedSpeedRef.current + deltaV) * 0.15;
       }
     }
 
-    // FIX 3: Alpha mượt + ưu tiên GPS
     const alpha = isCalibrated ? 0.65 : 0.4;
     smoothedSpeedRef.current = smoothedSpeedRef.current * (1 - alpha) + fusedSpeed * alpha;
 
@@ -223,22 +220,12 @@ export default function RunPage() {
     navigator.geolocation.getCurrentPosition(
       async (position) => {
         const { accuracy, speed, latitude, longitude } = position.coords;
-
-        // Xác định khu vực ngay lập tức
         const regionName = await getRealRegionName(latitude, longitude);
         setCurrentRegion(regionName);
 
         const info = getGPSStatusInfo(accuracy, speed !== null && speed !== undefined);
         setGpsStatus(info.text);
         setGpsAccuracy(Math.round(accuracy));
-
-        // Trạng thái sẵn sàng
-        if (accuracy < 60 && regionName !== 'Việt Nam' && regionName !== 'Đang xác định...') {
-          setGpsReadyStatus('san_sang');
-        } else {
-          setGpsReadyStatus('chua');
-        }
-
         setIsCheckingGPS(false);
       },
       (error) => {
@@ -250,7 +237,7 @@ export default function RunPage() {
     );
   }, []);
 
-  // ==================== START RUN + XÁC ĐỊNH KHU VỰC TRONG COUNTDOWN ====================
+  // ==================== START RUN + COUNTDOWN ĐẶC BIỆT ====================
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting) return;
     setIsStarting(true);
@@ -276,14 +263,11 @@ export default function RunPage() {
       if (count <= 0) {
         clearInterval(countdownInterval);
 
-        // XÁC ĐỊNH KHU VỰC LẠI TRONG COUNTDOWN (đảm bảo chính xác nhất)
+        // Xác định lại khu vực lần cuối trước khi chạy
         if (navigator.geolocation) {
           navigator.geolocation.getCurrentPosition(async (pos) => {
             const regionName = await getRealRegionName(pos.coords.latitude, pos.coords.longitude);
             setCurrentRegion(regionName);
-            if (pos.coords.accuracy < 60 && regionName !== 'Việt Nam') {
-              setGpsReadyStatus('san_sang');
-            }
           });
         }
 
@@ -294,7 +278,6 @@ export default function RunPage() {
             const now = Date.now();
             const { latitude, longitude, speed: gpsSpeedMs, accuracy } = position.coords;
 
-            // Cập nhật khu vực liên tục nếu cần
             if (accuracy < 60) {
               const regionName = await getRealRegionName(latitude, longitude);
               setCurrentRegion(regionName);
@@ -342,27 +325,27 @@ export default function RunPage() {
 
         setWatchId(id);
         setIsRunning(true);
-        setGpsReadyStatus('dang_chay');
         startDeviceMotion();
         setIsStarting(false);
       }
     }, 1000);
   }, [selectedVehicle, isStarting, calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN ====================
+  // ==================== STOP RUN + LOGIC VÔ HẠNG ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
     setIsRunning(false);
     setCountdown(null);
     setIsStarting(false);
-    setGpsReadyStatus('chua');
 
     const finalMaxSpeed = maxSpeedRef.current;
 
-    const isValid = finalMaxSpeed >= 1 && currentRegion !== 'Đang xác định...' && currentRegion !== 'Việt Nam';
+    // Chỉ cần > 1 km/h và có khu vực hợp lệ
+    const isRegionValid = currentRegion !== 'Đang xác định...' && currentRegion !== 'Việt Nam';
+    const isValidRun = isRegionValid && finalMaxSpeed >= 1;
 
-    if (!isValid) {
+    if (!isValidRun) {
       setRunResult({
         maxSpeed: finalMaxSpeed,
         zeroToHundred: 0,
@@ -457,7 +440,6 @@ export default function RunPage() {
     setGpsStatus('GPS Checking');
     setGpsAccuracy(null);
     setCurrentRegion('Đang xác định...');
-    setGpsReadyStatus('chua');
     setCountdown(null);
     speedHistory.current = [];
     recordingStartedRef.current = false;
@@ -483,6 +465,14 @@ export default function RunPage() {
       alert('Không thể tải ảnh. Vui lòng thử lại!');
     }
   }, []);
+
+  // ==================== COUNTDOWN DISPLAY LOGIC (theo yêu cầu) ====================
+  const getBigDisplay = () => {
+    if (countdown === null) return currentSpeed;
+    if (countdown === 5) return currentRegion;
+    if (countdown === 4) return 'READY';
+    return countdown;
+  };
 
   // ==================== GIAO DIỆN ====================
   if (isAuthLoading) {
@@ -517,20 +507,24 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-      {/* CARD TỐC ĐỘ LIVE */}
+      {/* CARD TỐC ĐỘ LIVE + COUNTDOWN ĐẶC BIỆT */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
         <CardContent className="p-10 text-center">
           <p className="text-zinc-400 text-base mb-3">SPEED</p>
-          <div className="text-[clamp(110px,26vw,170px)] font-black text-green-500 leading-none">
-            {countdown !== null ? <span className="text-yellow-400">{countdown}</span> : currentSpeed}
+          <div className="text-[clamp(110px,26vw,170px)] font-black text-green-500 leading-none min-h-[170px] flex items-center justify-center">
+            {getBigDisplay()}
           </div>
           <p className="text-zinc-400 text-4xl mt-2">
-            {countdown !== null ? 'GET READY' : 'km/h'}
+            {countdown !== null
+              ? countdown === 5 || countdown === 4
+                ? ''
+                : 'GET READY'
+              : 'km/h'}
           </p>
         </CardContent>
       </Card>
 
-      {/* GPS STATUS - ĐÃ CẢI TIẾN HIỂN THỊ RÕ RÀNG */}
+      {/* GPS STATUS - CHỈ CÒN KHU VỰC + TÍN HIỆU (đã bỏ trạng thái) */}
       <div className="bg-zinc-900 border border-zinc-700 rounded-3xl p-6 text-sm space-y-3">
         <div className="flex justify-between items-center">
           <span className="text-zinc-400">Khu vực:</span>
@@ -540,14 +534,6 @@ export default function RunPage() {
           <span className="text-zinc-400">Tín hiệu:</span>
           <span className={getGPSStatusInfo(gpsAccuracy || 999, true).color}>
             {gpsStatus} {gpsAccuracy ? `(${gpsAccuracy}m)` : ''}
-          </span>
-        </div>
-        <div className="flex justify-between items-center">
-          <span className="text-zinc-400">Trạng thái:</span>
-          <span className="font-medium">
-            {gpsReadyStatus === 'san_sang' && <span className="text-emerald-400">✅ Sẵn sàng</span>}
-            {gpsReadyStatus === 'dang_chay' && <span className="text-cyan-400">🏁 Đang chạy</span>}
-            {gpsReadyStatus === 'chua' && <span className="text-yellow-400">⏳ Chưa sẵn sàng</span>}
           </span>
         </div>
       </div>
@@ -636,12 +622,7 @@ export default function RunPage() {
                 <div className="text-center py-8 bg-red-950/50 border border-red-800 rounded-3xl">
                   <AlertCircle className="mx-auto h-12 w-12 text-red-400 mb-4" />
                   <p className="text-red-400 text-xl font-semibold">Run không hợp lệ</p>
-                  <p className="text-zinc-400 mt-2">
-                    {runResult.maxSpeed < 1
-                      ? 'Tốc độ quá thấp hoặc bạn chưa di chuyển.'
-                      : 'Khu vực chưa được xác định rõ ràng.'}
-                  </p>
-                  <p className="text-zinc-400 text-sm mt-4">Kết quả này không được ghi nhận vào bảng xếp hạng.</p>
+                  <p className="text-zinc-400 mt-2">Khu vực chưa được xác định rõ ràng.</p>
                 </div>
               ) : (
                 <>
@@ -658,8 +639,13 @@ export default function RunPage() {
                     </div>
                   </div>
 
+                  {/* RANK HOẶC VÔ HẠNG */}
                   <div className="text-center">
-                    <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
+                    {runResult.maxSpeed < 40 ? (
+                      <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG</p>
+                    ) : (
+                      <p className="text-6xl font-black text-green-400">#{runResult.rankInRegionToday}</p>
+                    )}
                   </div>
 
                   <div className="space-y-3 text-left border-t border-zinc-800 pt-6">
