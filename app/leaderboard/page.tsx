@@ -40,7 +40,7 @@ export default function LeaderboardPage() {
     });
   }, []);
 
-  // ==================== LOAD LEADERBOARD DATA ====================
+  // ==================== LOAD LEADERBOARD DATA (FILTER HỆ XE CHUẨN) ====================
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -55,7 +55,6 @@ export default function LeaderboardPage() {
         region,
         created_at,
         vehicles (
-          id,                    /* ← THÊM ID XE ĐỂ HIGHLIGHT */
           nickname,
           vehicle_type
         ),
@@ -66,6 +65,7 @@ export default function LeaderboardPage() {
         
     if (regionFilter !== 'all') query = query.eq('region', regionFilter);
 
+    // Server-side filter hệ xe (giữ nguyên để tối ưu tốc độ)
     if (typeFilter !== 'all') {
       query = query.eq('vehicles.vehicle_type', typeFilter);
     }
@@ -91,6 +91,8 @@ export default function LeaderboardPage() {
       return;
     }
 
+    // CLIENT-SIDE FILTER LÀM LỚP BẢO VỆ - ĐẢM BẢO CHỈ LẤY ĐÚNG HỆ XE
+    // (fix lỗi "ấn xe số vẫn hiện xe ga")
     let filteredResult = result || [];
     if (typeFilter !== 'all') {
       filteredResult = filteredResult.filter((item: any) => 
@@ -98,10 +100,10 @@ export default function LeaderboardPage() {
       );
     }
 
+    // Format data
     const formatted = filteredResult.map((item: any, index: number) => ({
       rank: index + 1,
       user_id: item.user_id,
-      vehicle_id: item.vehicles?.id,           /* ← LƯU ID XE ĐỂ HIGHLIGHT */
       nickname: item.vehicles?.nickname || 'Không có tên',
       vehicle_type: item.vehicles?.vehicle_type || '',
       avatar_url: item.profiles?.avatar_url || null,
@@ -120,6 +122,7 @@ export default function LeaderboardPage() {
     }
   }, [loadData]);
 
+  // Memoized data để tránh re-render không cần thiết
   const memoizedData = useMemo(() => data, [data]);
 
   // ==================== LOADING AUTH ====================
@@ -259,6 +262,7 @@ export default function LeaderboardPage() {
               </SelectContent>
             </Select>
 
+            {/* Filter hệ xe - giá trị chuẩn theo DB */}
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="flex-1 bg-zinc-900 border-zinc-700">
                 <SelectValue />
@@ -323,6 +327,7 @@ function LeaderboardTable({
         const isCurrentUser = item.user_id === user?.id;
         const rank = item.rank;
 
+        // Màu medal top 3
         let medalColor = 'text-zinc-400';
         if (rank === 1) medalColor = 'text-yellow-400';
         else if (rank === 2) medalColor = 'text-zinc-300';
@@ -331,13 +336,7 @@ function LeaderboardTable({
         return (
           <div
             key={item.rank}
-            onClick={() => {
-              // ← CHỈNH Ở ĐÂY: Truyền thêm vehicle_id để profile highlight xe đó
-              const url = item.vehicle_id 
-                ? `/profile/${item.user_id}?highlightVehicle=${item.vehicle_id}`
-                : `/profile/${item.user_id}`;
-              window.location.href = url;
-            }}
+            onClick={() => window.location.href = `/profile/${item.user_id}`}
             className={`
               group flex items-center gap-4 rounded-3xl p-5 transition-all hover:scale-[1.02] cursor-pointer
               ${isCurrentUser 
@@ -359,7 +358,7 @@ function LeaderboardTable({
               )}
             </div>
 
-            {/* USER AVATAR */}
+            {/* USER AVATAR (bo góc nhẹ, VIP) */}
             <div className="w-14 h-14 flex-shrink-0 rounded-3xl overflow-hidden border-2 border-zinc-700 bg-zinc-800">
               <img
                 src={item.avatar_url || `https://avatar.vercel.sh/${item.user_id}?size=128`}
