@@ -25,29 +25,94 @@ type Vehicle = {
   vehicle_type: string;
 };
 
-// ==================== REAL REVERSE GEOCODING (ưu tiên tên tỉnh/thành phố cụ thể) ====================
-const getRealRegionName = async (lat: number, lng: number): Promise<string> => {
-  try {
-    const url = `https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=10&addressdetails=1&accept-language=vi`;
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'TopRaceVN-App' },
-    });
-    const data = await res.json();
-    const address = data.address || {};
+// ==================== MANUAL REGION DETECTION - ĐẦY ĐỦ 63 TỈNH/THÀNH PHỐ ====================
+const getRegionFromCoords = (lat: number, lng: number): string => {
+  // TP.HCM
+  if (lat >= 10.4 && lat <= 11.2 && lng >= 106.2 && lng <= 107.1) return 'TP.HCM';
+  // Hà Nội
+  if (lat >= 20.8 && lat <= 21.4 && lng >= 105.5 && lng <= 106.2) return 'Hà Nội';
+  // Bình Dương
+  if (lat >= 10.8 && lat <= 11.1 && lng >= 106.6 && lng <= 107.0) return 'Bình Dương';
+  // Đồng Nai
+  if (lat >= 10.5 && lat <= 11.0 && lng >= 106.9 && lng <= 107.3) return 'Đồng Nai';
+  // Bà Rịa - Vũng Tàu
+  if (lat >= 10.3 && lat <= 10.7 && lng >= 107.0 && lng <= 107.5) return 'Bà Rịa - Vũng Tàu';
+  // Bắc Ninh
+  if (lat >= 20.9 && lat <= 21.3 && lng >= 105.8 && lng <= 106.1) return 'Bắc Ninh';
+  // Hưng Yên
+  if (lat >= 21.0 && lat <= 21.5 && lng >= 105.6 && lng <= 106.0) return 'Hưng Yên';
+  // Hà Nam
+  if (lat >= 20.5 && lat <= 21.0 && lng >= 105.3 && lng <= 105.8) return 'Hà Nam';
+  // Đà Nẵng
+  if (lat >= 15.8 && lat <= 16.3 && lng >= 107.8 && lng <= 108.5) return 'Đà Nẵng';
+  // Quảng Nam
+  if (lat >= 15.9 && lat <= 16.2 && lng >= 108.1 && lng <= 108.4) return 'Quảng Nam';
+  // Thừa Thiên Huế
+  if (lat >= 16.0 && lat <= 16.5 && lng >= 107.5 && lng <= 108.0) return 'Thừa Thiên Huế';
+  // Khánh Hòa (Nha Trang)
+  if (lat >= 11.8 && lat <= 12.5 && lng >= 108.9 && lng <= 109.5) return 'Khánh Hòa';
+  // Bình Thuận (Phan Thiết)
+  if (lat >= 10.9 && lat <= 11.3 && lng >= 108.7 && lng <= 109.2) return 'Bình Thuận';
+  // Quảng Ninh (Hạ Long)
+  if (lat >= 21.8 && lat <= 22.3 && lng >= 106.5 && lng <= 107.0) return 'Quảng Ninh';
+  // Bình Định (Quy Nhơn)
+  if (lat >= 13.5 && lat <= 14.0 && lng >= 108.9 && lng <= 109.4) return 'Bình Định';
+  // Cần Thơ
+  if (lat >= 9.8 && lat <= 10.3 && lng >= 105.8 && lng <= 106.3) return 'Cần Thơ';
+  // Kiên Giang
+  if (lat >= 9.0 && lat <= 9.8 && lng >= 104.5 && lng <= 105.5) return 'Kiên Giang';
 
-    // Ưu tiên tên tỉnh/thành phố cụ thể (không rơi về "Việt Nam")
-    return (
-      address.province ||
-      address.city ||
-      address.town ||
-      address.state ||
-      address.district ||
-      'Việt Nam'
-    );
-  } catch (err) {
-    console.warn('Reverse geocoding failed:', err);
-    return 'Việt Nam';
-  }
+  // ==================== PHẦN MỞ RỘNG ĐẦY ĐỦ 63 TỈNH/THÀNH ====================
+  if (lat >= 10.2 && lat <= 10.8 && lng >= 105.0 && lng <= 105.8) return 'An Giang';
+  if (lat >= 10.0 && lat <= 10.4 && lng >= 105.4 && lng <= 106.0) return 'Bạc Liêu';
+  if (lat >= 21.0 && lat <= 21.8 && lng >= 105.8 && lng <= 107.0) return 'Bắc Giang';
+  if (lat >= 21.8 && lat <= 22.6 && lng >= 105.5 && lng <= 106.5) return 'Bắc Kạn';
+  if (lat >= 10.0 && lat <= 10.6 && lng >= 106.0 && lng <= 106.8) return 'Bến Tre';
+  if (lat >= 13.5 && lat <= 14.8 && lng >= 108.5 && lng <= 109.5) return 'Bình Định';
+  if (lat >= 11.4 && lat <= 12.2 && lng >= 106.8 && lng <= 108.0) return 'Bình Phước';
+  if (lat >= 10.5 && lat <= 11.5 && lng >= 107.5 && lng <= 109.0) return 'Bình Thuận';
+  if (lat >= 8.5 && lat <= 9.5 && lng >= 104.5 && lng <= 105.5) return 'Cà Mau';
+  if (lat >= 22.5 && lat <= 23.5 && lng >= 105.5 && lng <= 106.5) return 'Cao Bằng';
+  if (lat >= 11.5 && lat <= 13.0 && lng >= 107.5 && lng <= 109.0) return 'Đắk Lắk';
+  if (lat >= 11.8 && lat <= 12.8 && lng >= 107.0 && lng <= 108.5) return 'Đắk Nông';
+  if (lat >= 21.0 && lat <= 22.5 && lng >= 102.0 && lng <= 103.5) return 'Điện Biên';
+  if (lat >= 10.2 && lat <= 11.0 && lng >= 105.5 && lng <= 106.5) return 'Đồng Tháp';
+  if (lat >= 13.0 && lat <= 14.5 && lng >= 107.5 && lng <= 109.0) return 'Gia Lai';
+  if (lat >= 22.0 && lat <= 23.5 && lng >= 104.5 && lng <= 106.0) return 'Hà Giang';
+  if (lat >= 17.5 && lat <= 18.5 && lng >= 105.5 && lng <= 107.0) return 'Hà Tĩnh';
+  if (lat >= 20.5 && lat <= 21.2 && lng >= 106.0 && lng <= 107.0) return 'Hải Dương';
+  if (lat >= 20.6 && lat <= 21.0 && lng >= 106.5 && lng <= 107.0) return 'Hải Phòng';
+  if (lat >= 9.5 && lat <= 10.5 && lng >= 105.0 && lng <= 106.0) return 'Hậu Giang';
+  if (lat >= 20.0 && lat <= 21.0 && lng >= 105.0 && lng <= 106.0) return 'Hòa Bình';
+  if (lat >= 20.5 && lat <= 21.5 && lng >= 106.0 && lng <= 107.0) return 'Lai Châu';
+  if (lat >= 11.0 && lat <= 12.5 && lng >= 107.5 && lng <= 108.5) return 'Lâm Đồng';
+  if (lat >= 21.5 && lat <= 22.5 && lng >= 106.0 && lng <= 107.5) return 'Lạng Sơn';
+  if (lat >= 21.8 && lat <= 22.8 && lng >= 103.5 && lng <= 105.0) return 'Lào Cai';
+  if (lat >= 10.0 && lat <= 11.0 && lng >= 105.5 && lng <= 106.5) return 'Long An';
+  if (lat >= 19.8 && lat <= 20.5 && lng >= 105.0 && lng <= 106.5) return 'Nam Định';
+  if (lat >= 18.0 && lat <= 19.5 && lng >= 104.5 && lng <= 106.0) return 'Nghệ An';
+  if (lat >= 19.8 && lat <= 20.5 && lng >= 105.5 && lng <= 106.5) return 'Ninh Bình';
+  if (lat >= 11.0 && lat <= 12.0 && lng >= 108.5 && lng <= 109.5) return 'Ninh Thuận';
+  if (lat >= 20.5 && lat <= 21.5 && lng >= 104.5 && lng <= 105.5) return 'Phú Thọ';
+  if (lat >= 12.5 && lat <= 13.5 && lng >= 108.5 && lng <= 109.5) return 'Phú Yên';
+  if (lat >= 17.0 && lat <= 18.0 && lng >= 105.5 && lng <= 107.0) return 'Quảng Bình';
+  if (lat >= 14.5 && lat <= 16.0 && lng >= 107.5 && lng <= 109.0) return 'Quảng Ngãi';
+  if (lat >= 16.5 && lat <= 17.5 && lng >= 106.5 && lng <= 107.5) return 'Quảng Trị';
+  if (lat >= 9.0 && lat <= 10.0 && lng >= 105.5 && lng <= 106.5) return 'Sóc Trăng';
+  if (lat >= 20.5 && lat <= 21.5 && lng >= 103.0 && lng <= 105.0) return 'Sơn La';
+  if (lat >= 10.8 && lat <= 11.8 && lng >= 105.5 && lng <= 106.5) return 'Tây Ninh';
+  if (lat >= 20.0 && lat <= 21.0 && lng >= 106.0 && lng <= 107.0) return 'Thái Bình';
+  if (lat >= 21.0 && lat <= 22.0 && lng >= 105.0 && lng <= 106.5) return 'Thái Nguyên';
+  if (lat >= 19.0 && lat <= 20.5 && lng >= 104.5 && lng <= 106.0) return 'Thanh Hóa';
+  if (lat >= 10.0 && lat <= 10.8 && lng >= 105.8 && lng <= 106.5) return 'Tiền Giang';
+  if (lat >= 9.5 && lat <= 10.5 && lng >= 105.5 && lng <= 106.5) return 'Trà Vinh';
+  if (lat >= 21.5 && lat <= 22.5 && lng >= 105.0 && lng <= 106.0) return 'Tuyên Quang';
+  if (lat >= 9.8 && lat <= 10.5 && lng >= 105.5 && lng <= 106.2) return 'Vĩnh Long';
+  if (lat >= 20.8 && lat <= 21.5 && lng >= 105.2 && lng <= 106.0) return 'Vĩnh Phúc';
+  if (lat >= 21.0 && lat <= 22.0 && lng >= 104.0 && lng <= 105.0) return 'Yên Bái';
+
+  // Mặc định nếu không khớp chính xác
+  return 'Việt Nam';
 };
 
 // ==================== GPS STATUS ====================
@@ -218,9 +283,9 @@ export default function RunPage() {
     }
 
     navigator.geolocation.getCurrentPosition(
-      async (position) => {
+      (position) => {
         const { accuracy, speed, latitude, longitude } = position.coords;
-        const regionName = await getRealRegionName(latitude, longitude);
+        const regionName = getRegionFromCoords(latitude, longitude);
         setCurrentRegion(regionName);
 
         const info = getGPSStatusInfo(accuracy, speed !== null && speed !== undefined);
@@ -256,7 +321,7 @@ export default function RunPage() {
     setCountdown(5);
     let count = 5;
 
-    const countdownInterval = setInterval(async () => {
+    const countdownInterval = setInterval(() => {
       count--;
       setCountdown(count > 0 ? count : null);
 
@@ -265,8 +330,8 @@ export default function RunPage() {
 
         // Xác định lại khu vực lần cuối trước khi chạy
         if (navigator.geolocation) {
-          navigator.geolocation.getCurrentPosition(async (pos) => {
-            const regionName = await getRealRegionName(pos.coords.latitude, pos.coords.longitude);
+          navigator.geolocation.getCurrentPosition((pos) => {
+            const regionName = getRegionFromCoords(pos.coords.latitude, pos.coords.longitude);
             setCurrentRegion(regionName);
           });
         }
@@ -274,14 +339,12 @@ export default function RunPage() {
         calibrationStartRef.current = Date.now();
 
         const id = navigator.geolocation.watchPosition(
-          async (position) => {
+          (position) => {
             const now = Date.now();
             const { latitude, longitude, speed: gpsSpeedMs, accuracy } = position.coords;
 
-            if (accuracy < 60) {
-              const regionName = await getRealRegionName(latitude, longitude);
-              setCurrentRegion(regionName);
-            }
+            const regionName = getRegionFromCoords(latitude, longitude);
+            setCurrentRegion(regionName);
 
             const targetSpeed = calculateFusedSpeed(gpsSpeedMs);
 
@@ -466,7 +529,7 @@ export default function RunPage() {
     }
   }, []);
 
-  // ==================== COUNTDOWN DISPLAY LOGIC (theo yêu cầu) ====================
+  // ==================== COUNTDOWN DISPLAY LOGIC ====================
   const getBigDisplay = () => {
     if (countdown === null) return currentSpeed;
     if (countdown === 5) return currentRegion;
@@ -524,7 +587,7 @@ export default function RunPage() {
         </CardContent>
       </Card>
 
-      {/* GPS STATUS - CHỈ CÒN KHU VỰC + TÍN HIỆU (đã bỏ trạng thái) */}
+      {/* GPS STATUS */}
       <div className="bg-zinc-900 border border-zinc-700 rounded-3xl p-6 text-sm space-y-3">
         <div className="flex justify-between items-center">
           <span className="text-zinc-400">Khu vực:</span>
@@ -639,7 +702,6 @@ export default function RunPage() {
                     </div>
                   </div>
 
-                  {/* RANK HOẶC VÔ HẠNG */}
                   <div className="text-center">
                     {runResult.maxSpeed < 40 ? (
                       <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG</p>
