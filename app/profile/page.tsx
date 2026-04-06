@@ -198,13 +198,13 @@ export default function MyProfilePage() {
   }, [user, editForm, avatarFile]);
 
   // ==================== LOADING AUTH ====================
-  if (isAuthLoading) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-green-500">
-        Đang kiểm tra đăng nhập...
-      </div>
-    );
-  }
+if (isAuthLoading) {
+  return (
+    <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
+      Đang kiểm tra đăng nhập...
+    </div>
+  );
+}
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
