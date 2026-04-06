@@ -5,8 +5,6 @@ import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import {
@@ -20,7 +18,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Car, Plus, Edit, Trash2 } from 'lucide-react';
 
 type Vehicle = {
@@ -31,7 +29,7 @@ type Vehicle = {
   vehicle_type: string;
   year: number | null;
   mod_level: string;
-  description: string;
+  description: string; // giữ lại trong type để tương thích DB cũ
 };
 
 export default function VehiclesPage() {
@@ -50,7 +48,6 @@ export default function VehiclesPage() {
     vehicle_type: 'xe_ga' as const,
     year: '',
     mod_level: 'Stock',
-    description: '',
   });
 
   // ==================== INIT AUTH + LOAD VEHICLES ====================
@@ -100,11 +97,17 @@ export default function VehiclesPage() {
         vehicle_type: vehicle.vehicle_type as any,
         year: vehicle.year ? String(vehicle.year) : '',
         mod_level: vehicle.mod_level,
-        description: vehicle.description || '',
       });
     } else {
       setEditingVehicle(null);
-      setForm({ nickname: '', brand: '', model: '', vehicle_type: 'xe_ga', year: '', mod_level: 'Stock', description: '' });
+      setForm({
+        nickname: '',
+        brand: '',
+        model: '',
+        vehicle_type: 'xe_ga',
+        year: '',
+        mod_level: 'Stock',
+      });
     }
     setOpen(true);
   }, []);
@@ -117,18 +120,19 @@ export default function VehiclesPage() {
 
     setLoading(true);
 
+    const payload = {
+      nickname: form.nickname.trim(),
+      brand: form.brand.trim(),
+      model: form.model.trim(),
+      vehicle_type: form.vehicle_type,
+      year: form.year ? parseInt(form.year) : null,
+      mod_level: form.mod_level,
+    };
+
     if (editingVehicle) {
       const { error } = await supabase
         .from('vehicles')
-        .update({
-          nickname: form.nickname.trim(),
-          brand: form.brand.trim(),
-          model: form.model.trim(),
-          vehicle_type: form.vehicle_type,
-          year: form.year ? parseInt(form.year) : null,
-          mod_level: form.mod_level,
-          description: form.description.trim(),
-        })
+        .update(payload)
         .eq('id', editingVehicle.id);
 
       if (!error) {
@@ -143,13 +147,7 @@ export default function VehiclesPage() {
     } else {
       const { error } = await supabase.from('vehicles').insert({
         user_id: user.id,
-        nickname: form.nickname.trim(),
-        brand: form.brand.trim(),
-        model: form.model.trim(),
-        vehicle_type: form.vehicle_type,
-        year: form.year ? parseInt(form.year) : null,
-        mod_level: form.mod_level,
-        description: form.description.trim(),
+        ...payload,
       });
 
       if (!error) {
@@ -163,7 +161,14 @@ export default function VehiclesPage() {
       } else alert('Lỗi: ' + error.message);
     }
 
-    setForm({ nickname: '', brand: '', model: '', vehicle_type: 'xe_ga', year: '', mod_level: 'Stock', description: '' });
+    setForm({
+      nickname: '',
+      brand: '',
+      model: '',
+      vehicle_type: 'xe_ga',
+      year: '',
+      mod_level: 'Stock',
+    });
     setEditingVehicle(null);
     setLoading(false);
   }, [user, form, editingVehicle]);
@@ -216,8 +221,6 @@ export default function VehiclesPage() {
     );
   }
 
-  
-
   // ==================== ĐÃ ĐĂNG NHẬP - DANH SÁCH XE ====================
   if (loading) {
     return <div className="text-center py-20 text-zinc-400">Đang tải danh sách xe...</div>;
@@ -253,13 +256,6 @@ export default function VehiclesPage() {
 
                   <div className="text-zinc-400">Mức độ độ</div>
                   <div className="text-right text-green-400 font-medium">{v.mod_level}</div>
-
-                  {v.description && (
-                    <div className="col-span-2 pt-8 border-t border-zinc-800">
-                      <p className="text-base text-zinc-400">Mô tả</p>
-                      <p className="text-lg mt-3 leading-relaxed">{v.description}</p>
-                    </div>
-                  )}
                 </CardContent>
               </Card>
 
@@ -300,48 +296,57 @@ export default function VehiclesPage() {
             </Button>
           </DialogTrigger>
 
-          <DialogContent className="w-[95vw] max-w-[95vw] mx-2 sm:mx-auto sm:max-w-md rounded-3xl">
-            <DialogHeader>
-              <DialogTitle>{editingVehicle ? 'Sửa xe' : 'Thêm xe mới'}</DialogTitle>
-              <DialogDescription>Nhập thông tin xe của bạn</DialogDescription>
+          <DialogContent className="w-[95vw] max-w-[420px] mx-auto rounded-3xl bg-zinc-900 border-zinc-800 max-h-[90vh] overflow-y-auto">
+            <DialogHeader className="text-left">
+              <DialogTitle className="text-2xl font-black">
+                {editingVehicle ? 'Sửa xe' : 'Thêm xe mới'}
+              </DialogTitle>
+              <DialogDescription className="text-zinc-400">
+                Nhập thông tin xe của bạn
+              </DialogDescription>
             </DialogHeader>
 
-            <div className="grid gap-6 py-2">
+            <div className="space-y-6 py-2">
+              {/* Nickname */}
               <div>
-                <Label>Nickname xe <span className="text-red-500">*</span></Label>
+                <Label className="flex items-center gap-1 text-base font-medium">
+                  Nickname xe <span className="text-red-500">*</span>
+                </Label>
                 <Input
                   placeholder="White SH350 Demon"
                   value={form.nickname}
                   onChange={(e) => setForm({ ...form, nickname: e.target.value })}
-                  className="h-14 text-base"
+                  className="h-14 text-base mt-2 bg-zinc-950 border-zinc-700 focus:border-cyan-400"
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Hãng xe + Model */}
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Hãng xe</Label>
+                  <Label className="text-base font-medium">Hãng xe</Label>
                   <Input
                     placeholder="Honda"
                     value={form.brand}
                     onChange={(e) => setForm({ ...form, brand: e.target.value })}
-                    className="h-14 text-base"
+                    className="h-14 text-base mt-2 bg-zinc-950 border-zinc-700 focus:border-cyan-400"
                   />
                 </div>
                 <div>
-                  <Label>Model</Label>
+                  <Label className="text-base font-medium">Model</Label>
                   <Input
                     placeholder="SH 350i"
                     value={form.model}
                     onChange={(e) => setForm({ ...form, model: e.target.value })}
-                    className="h-14 text-base"
+                    className="h-14 text-base mt-2 bg-zinc-950 border-zinc-700 focus:border-cyan-400"
                   />
                 </div>
               </div>
 
+              {/* Loại xe */}
               <div>
-                <Label>Loại xe</Label>
+                <Label className="text-base font-medium">Loại xe</Label>
                 <Select value={form.vehicle_type} onValueChange={(v) => setForm({ ...form, vehicle_type: v as any })}>
-                  <SelectTrigger className="h-14 text-base">
+                  <SelectTrigger className="h-14 text-base mt-2 bg-zinc-950 border-zinc-700 focus:border-cyan-400">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -353,21 +358,22 @@ export default function VehiclesPage() {
                 </Select>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Năm sản xuất + Mức độ độ */}
+              <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <Label>Năm sản xuất</Label>
+                  <Label className="text-base font-medium">Năm sản xuất</Label>
                   <Input
                     type="number"
                     placeholder="2024"
                     value={form.year}
                     onChange={(e) => setForm({ ...form, year: e.target.value })}
-                    className="h-14 text-base"
+                    className="h-14 text-base mt-2 bg-zinc-950 border-zinc-700 focus:border-cyan-400"
                   />
                 </div>
                 <div>
-                  <Label>Mức độ độ</Label>
+                  <Label className="text-base font-medium">Mức độ độ</Label>
                   <Select value={form.mod_level} onValueChange={(v) => setForm({ ...form, mod_level: v })}>
-                    <SelectTrigger className="h-14 text-base">
+                    <SelectTrigger className="h-14 text-base mt-2 bg-zinc-950 border-zinc-700 focus:border-cyan-400">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -379,24 +385,20 @@ export default function VehiclesPage() {
                   </Select>
                 </div>
               </div>
-
-              <div>
-                <Label>Mô tả ngắn</Label>
-                <Textarea
-                  placeholder="Pô full system + ECU độ nhẹ + lốp Michelin"
-                  value={form.description}
-                  onChange={(e) => setForm({ ...form, description: e.target.value })}
-                  rows={4}
-                  className="resize-none text-base"
-                />
-              </div>
             </div>
 
-            <DialogFooter className="gap-3 pt-2">
-              <Button variant="outline" onClick={() => setOpen(false)} className="h-14 text-base">
+            <DialogFooter className="flex gap-3 pt-6">
+              <Button
+                variant="outline"
+                onClick={() => setOpen(false)}
+                className="flex-1 h-14 text-base font-medium rounded-2xl border-zinc-700"
+              >
                 Hủy
               </Button>
-              <Button onClick={handleAddOrUpdateVehicle} className="h-14 text-base">
+              <Button
+                onClick={handleAddOrUpdateVehicle}
+                className="flex-1 h-14 text-base font-medium rounded-2xl bg-white text-black hover:bg-zinc-100"
+              >
                 {editingVehicle ? 'Lưu thay đổi' : 'Thêm xe'}
               </Button>
             </DialogFooter>
