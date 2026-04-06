@@ -126,13 +126,13 @@ export default function LeaderboardPage() {
   const memoizedData = useMemo(() => data, [data]);
 
   // ==================== LOADING AUTH ====================
-  if (isAuthLoading) {
-    return (
-      <div className="min-h-screen bg-zinc-950 flex items-center justify-center text-green-500">
-        Đang kiểm tra đăng nhập...
-      </div>
-    );
-  }
+if (isAuthLoading) {
+  return (
+    <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
+      Đang kiểm tra đăng nhập...
+    </div>
+  );
+}
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
@@ -272,7 +272,7 @@ export default function LeaderboardPage() {
                 <SelectItem value="xe_ga">Xe ga</SelectItem>
                 <SelectItem value="xe_số">Xe số</SelectItem>
                 <SelectItem value="xe_côn_tay">Xe côn tay</SelectItem>
-                <SelectItem value="xe_dien">Xe điện</SelectItem>
+                <SelectItem value="xe_điện">Xe điện</SelectItem>
                 <SelectItem value="oto">Ô tô</SelectItem>
               </SelectContent>
             </Select>
