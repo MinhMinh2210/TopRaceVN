@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
@@ -40,7 +40,7 @@ export default function LeaderboardPage() {
     });
   }, []);
 
-  // ==================== LOAD LEADERBOARD DATA (TỐI ƯU) ====================
+  // ==================== LOAD LEADERBOARD DATA (FILTER HỆ XE CHUẨN) ====================
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -64,7 +64,11 @@ export default function LeaderboardPage() {
       `);
         
     if (regionFilter !== 'all') query = query.eq('region', regionFilter);
-    if (typeFilter !== 'all') query = query.eq('vehicles.vehicle_type', typeFilter);
+
+    // Server-side filter hệ xe (giữ nguyên để tối ưu tốc độ)
+    if (typeFilter !== 'all') {
+      query = query.eq('vehicles.vehicle_type', typeFilter);
+    }
 
     if (activeTab === 'speed') {
       query = query
@@ -81,14 +85,23 @@ export default function LeaderboardPage() {
     const { data: result, error } = await query.limit(50);
 
     if (error) {
-      console.error('Lỗi load leaderboard chi tiết:', error);
+      console.error('Lỗi load leaderboard:', error);
       setData([]);
       setLoading(false);
       return;
     }
 
-    // Tối ưu: format data một lần duy nhất
-    const formatted = (result || []).map((item: any, index: number) => ({
+    // CLIENT-SIDE FILTER LÀM LỚP BẢO VỆ - ĐẢM BẢO CHỈ LẤY ĐÚNG HỆ XE
+    // (fix lỗi "ấn xe số vẫn hiện xe ga")
+    let filteredResult = result || [];
+    if (typeFilter !== 'all') {
+      filteredResult = filteredResult.filter((item: any) => 
+        item.vehicles?.vehicle_type === typeFilter
+      );
+    }
+
+    // Format data
+    const formatted = filteredResult.map((item: any, index: number) => ({
       rank: index + 1,
       user_id: item.user_id,
       nickname: item.vehicles?.nickname || 'Không có tên',
@@ -249,6 +262,7 @@ export default function LeaderboardPage() {
               </SelectContent>
             </Select>
 
+            {/* Filter hệ xe - giá trị chuẩn theo DB */}
             <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="flex-1 bg-zinc-900 border-zinc-700">
                 <SelectValue />
@@ -344,20 +358,22 @@ function LeaderboardTable({
               )}
             </div>
 
-            {/* USER AVATAR (thay vì icon xe) - VIP look, bo góc nhẹ */}
+            {/* USER AVATAR (bo góc nhẹ, VIP) */}
             <div className="w-14 h-14 flex-shrink-0 rounded-3xl overflow-hidden border-2 border-zinc-700 bg-zinc-800">
               <img
                 src={item.avatar_url || `https://avatar.vercel.sh/${item.user_id}?size=128`}
                 alt={item.nickname}
                 className="w-full h-full object-cover transition-transform group-hover:scale-110"
                 onError={(e) => {
-                  // Fallback nếu avatar lỗi
                   e.currentTarget.style.display = 'none';
-                  e.currentTarget.parentElement!.innerHTML = `
-                    <div class="w-full h-full flex items-center justify-center bg-zinc-700 text-zinc-400">
-                      👤
-                    </div>
-                  `;
+                  const parent = e.currentTarget.parentElement;
+                  if (parent) {
+                    parent.innerHTML = `
+                      <div class="w-full h-full flex items-center justify-center bg-zinc-700 text-zinc-400 text-3xl">
+                        👤
+                      </div>
+                    `;
+                  }
                 }}
               />
             </div>
@@ -379,7 +395,7 @@ function LeaderboardTable({
               </p>
             </div>
 
-            {/* Value (giống TripRank) */}
+            {/* Value */}
             <div className="text-right">
               <div className="text-4xl font-black text-emerald-400 tracking-tighter">
                 {item.value}
