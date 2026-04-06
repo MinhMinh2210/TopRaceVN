@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   title: 'TopRaceVN - Sân chơi rank tốc độ xe',
   description: 'Chạy thật - Đo thật - Rank thật',
   viewport: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no',
-  manifest: '/manifest.json',           // ← Next.js tự nhận
+  manifest: '/manifest.json',
   themeColor: '#22c55e',
 };
 
@@ -24,7 +24,6 @@ export default function RootLayout({
   return (
     <html lang="vi" className="dark">
       <head>
-        {/* PWA - Fullscreen Configuration */}
         <link rel="manifest" href="/manifest.json" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -53,8 +52,8 @@ export default function RootLayout({
                 </div>
               </header>
 
-              {/* Page Content */}
-              <main className="flex-1 overflow-auto pb-20 md:pb-6 px-2 md:px-6 py-4 md:py-6">
+              {/* Page Content - ĐÃ FIX */}
+              <main className="flex-1 min-h-0 overflow-auto pb-20 md:pb-6 px-2 md:px-6 py-4 md:py-6">
                 {children}
               </main>
 
