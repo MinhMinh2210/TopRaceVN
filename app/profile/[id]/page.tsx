@@ -27,11 +27,11 @@ type Vehicle = {
 };
 
 export default function ProfilePage() {
-  const { id } = useParams() as { id: string };
+  const { id } = useParams() as { id: string };   // ID của người đang xem
   const [currentUser, setCurrentUser] = useState<any>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
-  const [isViewer, setIsViewer] = useState(false);
+  const [isViewer, setIsViewer] = useState(false);   // true = đang xem profile người khác
 
   const [loading, setLoading] = useState(true);
 
@@ -40,8 +40,10 @@ export default function ProfilePage() {
       const cu = await getCurrentUser();
       setCurrentUser(cu);
 
+      // Kiểm tra có phải viewer không
       setIsViewer(cu?.id !== id);
 
+      // Lấy thông tin profile
       const { data: prof } = await supabase
         .from('profiles')
         .select('*')
@@ -50,6 +52,7 @@ export default function ProfilePage() {
 
       setProfile(prof);
 
+      // Lấy danh sách xe
       const { data: veh } = await supabase
         .from('vehicles')
         .select('id, nickname, brand, model, vehicle_type')
@@ -67,78 +70,70 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="min-h-screen bg-zinc-950 pb-20 px-4">
-      <div className="max-w-2xl mx-auto">
-        {/* Header Profile - To hơn 50% */}
-        <div className="flex flex-col items-center text-center pt-8 pb-10">
-          {isViewer && (
-            <div className="flex items-center gap-2 bg-zinc-800 text-zinc-400 text-sm px-6 py-2 rounded-full mb-6">
-              <Eye className="h-4 w-4" />
-              <span>Đang xem profile của người khác</span>
-            </div>
-          )}
+    <div className="space-y-6 pb-20 px-4">
+      {/* Header Profile */}
+      <div className="flex flex-col items-center text-center">
+        {isViewer && (
+          <div className="flex items-center gap-2 bg-zinc-800 text-zinc-400 text-xs px-4 py-1.5 rounded-full mb-3">
+            <Eye className="h-3 w-3" />
+            <span>Đang xem profile của người khác (Viewer)</span>
+          </div>
+        )}
 
-          <Avatar className="w-36 h-36 mb-6 border-4 border-zinc-800 shadow-2xl">
-            <AvatarImage src={profile?.avatar_url || ''} />
-            <AvatarFallback className="text-6xl bg-zinc-800">
-              {profile?.nickname?.[0] || '?'}
-            </AvatarFallback>
-          </Avatar>
+        <Avatar className="w-24 h-24 mb-4">
+          <AvatarImage src={profile?.avatar_url || ''} />
+          <AvatarFallback className="text-4xl">
+            {profile?.nickname?.[0] || '?'}
+          </AvatarFallback>
+        </Avatar>
 
-          <h1 className="text-5xl font-black tracking-tighter">{profile?.nickname || 'Unknown'}</h1>
-          
-          {profile?.full_name && (
-            <p className="text-2xl text-zinc-400 mt-2">{profile.full_name}</p>
-          )}
+        <h1 className="text-3xl font-black">{profile?.nickname || 'Unknown'}</h1>
+        {profile?.full_name && (
+          <p className="text-zinc-400">{profile.full_name}</p>
+        )}
 
-          {profile?.bio && (
-            <p className="text-lg text-zinc-300 mt-8 max-w-md leading-relaxed px-4">
-              {profile.bio}
-            </p>
-          )}
-        </div>
-
-        {/* Danh sách xe - To hơn, đầy màn hình */}
-        <Card className="bg-zinc-900 border-zinc-800 shadow-xl">
-          <CardHeader className="pb-4">
-            <CardTitle className="flex items-center gap-3 text-2xl">
-              <Car className="h-7 w-7" />
-              Xe của {profile?.nickname}
-            </CardTitle>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {vehicles.length === 0 ? (
-              <div className="text-center py-16 text-zinc-400">
-                <Car className="mx-auto h-12 w-12 mb-4 opacity-30" />
-                <p>Chưa có xe nào</p>
-              </div>
-            ) : (
-              vehicles.map((v) => (
-                <div
-                  key={v.id}
-                  className="flex justify-between items-center bg-zinc-800 hover:bg-zinc-700 transition-colors p-6 rounded-3xl"
-                >
-                  <div>
-                    <p className="text-2xl font-semibold">{v.nickname}</p>
-                    <p className="text-zinc-400 mt-1">
-                      {v.brand} {v.model} • {v.vehicle_type.replace('_', ' ')}
-                    </p>
-                  </div>
-                </div>
-              ))
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Nút quay lại */}
-        <Button
-          onClick={() => window.history.back()}
-          variant="outline"
-          className="w-full mt-8 py-7 text-lg font-medium rounded-3xl"
-        >
-          ← Quay lại Bảng Xếp Hạng
-        </Button>
+        {profile?.bio && (
+          <p className="text-sm text-zinc-300 mt-4 max-w-xs">{profile.bio}</p>
+        )}
       </div>
+
+      {/* Danh sách xe */}
+      <Card className="bg-zinc-900 border-zinc-800">
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <Car className="h-5 w-5" />
+            Xe của {profile?.nickname}
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {vehicles.length === 0 ? (
+            <p className="text-zinc-400 text-center py-8">Chưa có xe nào</p>
+          ) : (
+            vehicles.map((v) => (
+              <div
+                key={v.id}
+                className="flex justify-between items-center bg-zinc-800 p-4 rounded-2xl"
+              >
+                <div>
+                  <p className="font-medium">{v.nickname}</p>
+                  <p className="text-xs text-zinc-400">
+                    {v.brand} {v.model} • {v.vehicle_type}
+                  </p>
+                </div>
+              </div>
+            ))
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Nút quay lại */}
+      <Button
+        onClick={() => window.history.back()}
+        variant="outline"
+        className="w-full"
+      >
+        ← Quay lại Bảng Xếp Hạng
+      </Button>
     </div>
   );
 }

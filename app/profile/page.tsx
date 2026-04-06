@@ -45,7 +45,7 @@ export default function MyProfilePage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [vehicles, setVehicles] = useState<any[]>([]);
   const [runsHistory, setRunsHistory] = useState<RunHistory[]>([]);
-  const [stats, setStats] = useState({ runs: 0, bestSpeed: 0, rank: 0 });
+  const [stats, setStats] = useState({ runs: 0, bestSpeed: 0, rank: '—' as string | number });
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   const [editOpen, setEditOpen] = useState(false);
@@ -104,7 +104,7 @@ export default function MyProfilePage() {
       zero_to_hundred: r.zero_to_hundred,
       created_at: r.created_at,
       region: r.region || 'Không xác định',
-      vehicles: r.vehicles?.[0] || null,
+      vehicles: r.vehicles || null,           // ← Fix: hiển thị đúng tên xe
     }));
 
     setRunsHistory(formatted);
@@ -122,10 +122,22 @@ export default function MyProfilePage() {
       .order('max_speed', { ascending: false })
       .limit(1);
 
+    const bestSpeed = best?.[0]?.max_speed || 0;
+
+    // Tính rank thực tế
+    let rank: string | number = '—';
+    if (bestSpeed > 0) {
+      const { count: higher } = await supabase
+        .from('runs')
+        .select('*', { count: 'exact', head: true })
+        .gt('max_speed', bestSpeed);
+      rank = (higher || 0) + 1;
+    }
+
     setStats({
       runs: count || 0,
-      bestSpeed: best?.[0]?.max_speed || 0,
-      rank: 1,
+      bestSpeed: bestSpeed,
+      rank: rank,
     });
 
     setIsAuthLoading(false);
@@ -135,17 +147,14 @@ export default function MyProfilePage() {
     loadAllData();
   }, [loadAllData]);
 
-  // ==================== GOOGLE LOGIN ====================
+  // ==================== GOOGLE LOGIN & LOGOUT ====================
   const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: window.location.origin + '/profile',
-      },
+      options: { redirectTo: window.location.origin + '/profile' },
     });
   }, []);
 
-  // ==================== LOGOUT ====================
   const handleLogout = useCallback(async () => {
     await logout();
   }, []);
@@ -231,15 +240,29 @@ export default function MyProfilePage() {
   }
 
   // ==================== ĐÃ ĐĂNG NHẬP - PROFILE ====================
+  const isTopRank = typeof stats.rank === 'number' && stats.rank <= 3;
+
   return (
     <div className="space-y-6 pb-20 px-4 max-w-2xl mx-auto">
       <div className="flex flex-col items-center text-center pt-4">
-        <Avatar className="w-28 h-28 mb-4 border-4 border-green-500">
-          <AvatarImage src={profile?.avatar_url || ''} />
-          <AvatarFallback className="text-5xl bg-zinc-800">
-            {profile?.nickname?.[0] || '?'}
-          </AvatarFallback>
-        </Avatar>
+        {/* Avatar với badge top 1-2-3 */}
+        <div className="relative">
+          <Avatar className="w-28 h-28 mb-4 border-4 border-green-500">
+            <AvatarImage src={profile?.avatar_url || ''} />
+            <AvatarFallback className="text-5xl bg-zinc-800">
+              {profile?.nickname?.[0] || '?'}
+            </AvatarFallback>
+          </Avatar>
+
+          {/* Badge top 1-2-3 - góc dưới phải */}
+          {isTopRank && (
+            <div className="absolute bottom-1 right-1 bg-gradient-to-br from-yellow-400 to-amber-500 text-black text-xs font-bold px-3 py-0.5 rounded-2xl shadow-2xl shadow-yellow-500/50 flex items-center gap-1 border-2 border-white">
+              <Trophy className="w-3 h-3" />
+              #{stats.rank}
+            </div>
+          )}
+        </div>
+
         <h1 className="text-3xl font-black">{profile?.nickname}</h1>
         {profile?.full_name && <p className="text-zinc-400">{profile.full_name}</p>}
         {profile?.bio && <p className="text-sm text-zinc-300 mt-6 max-w-md">{profile.bio}</p>}
@@ -281,9 +304,20 @@ export default function MyProfilePage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-3 gap-4 text-center">
-          <div><p className="text-3xl font-bold text-green-400">{stats.runs}</p><p className="text-xs text-zinc-400">Run đã ghi</p></div>
-          <div><p className="text-3xl font-bold text-green-400">{stats.bestSpeed}</p><p className="text-xs text-zinc-400">Top Speed cao nhất</p></div>
-          <div><p className="text-3xl font-bold text-green-400">#{stats.rank}</p><p className="text-xs text-zinc-400">Rank hiện tại</p></div>
+          <div>
+            <p className="text-3xl font-bold text-green-400">{stats.runs}</p>
+            <p className="text-xs text-zinc-400">Run đã ghi</p>
+          </div>
+          <div>
+            <p className="text-3xl font-bold text-green-400">{stats.bestSpeed}</p>
+            <p className="text-xs text-zinc-400">Top Speed cao nhất</p>
+          </div>
+          <div>
+            <p className="text-3xl font-bold text-green-400">
+              {typeof stats.rank === 'number' ? `#${stats.rank}` : '—'}
+            </p>
+            <p className="text-xs text-zinc-400">Rank hiện tại</p>
+          </div>
         </CardContent>
       </Card>
 
@@ -320,12 +354,18 @@ export default function MyProfilePage() {
                 onClick={() => setSelectedRun(run)}
               >
                 <div>
-                  <p className="font-medium">{run.vehicles?.nickname || 'Xe không tên'}</p>
-                  <p className="text-xs text-zinc-400">{new Date(run.created_at).toLocaleString('vi-VN')}</p>
+                  <p className="font-medium">
+                    {run.vehicles?.nickname || 'Xe không tên'}
+                  </p>
+                  <p className="text-xs text-zinc-400">
+                    {new Date(run.created_at).toLocaleString('vi-VN')}
+                  </p>
                 </div>
                 <div className="text-right">
                   <p className="text-xl font-bold text-green-400">{run.max_speed} km/h</p>
-                  {run.zero_to_hundred && <p className="text-xs text-zinc-400">0-100: {run.zero_to_hundred}s</p>}
+                  {run.zero_to_hundred && (
+                    <p className="text-xs text-zinc-400">0-100: {run.zero_to_hundred}s</p>
+                  )}
                   <p className="text-xs text-zinc-400">{run.region}</p>
                 </div>
               </div>
