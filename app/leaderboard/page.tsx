@@ -272,6 +272,7 @@ export default function LeaderboardPage() {
                 <SelectItem value="xe_ga">Xe ga</SelectItem>
                 <SelectItem value="xe_số">Xe số</SelectItem>
                 <SelectItem value="xe_côn_tay">Xe côn tay</SelectItem>
+                <SelectItem value="xe_dien">Xe điện</SelectItem>
                 <SelectItem value="oto">Ô tô</SelectItem>
               </SelectContent>
             </Select>
