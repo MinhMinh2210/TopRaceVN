@@ -26,7 +26,7 @@ type Run = {
   region: string;
 };
 
-// ==================== RACER SNAPSHOT TYPES ====================
+// ==================== RACER SNAPSHOT TYPES (GIỮ NGUYÊN CODE CŨ) ====================
 type NearbyZone = {
   name: string;
   topSpeed: number;
@@ -133,27 +133,52 @@ export default function Home() {
       .gte('created_at', today);
     setRunCountToday(todayCount || 0);
 
-    // ==================== RACER SNAPSHOT - DYNAMIC (không còn hardcode) ====================
-    // Trong tương lai có thể fetch từ bảng runs / gps_logs, hiện tại simulate dữ liệu thực tế
-    setCurrentRegion(bestRunData?.region || 'TP.HCM');
+    // ==================== RACER SNAPSHOT - FETCH TỪ DB MỚI (không simulate nữa) ====================
+    // Fetch snapshot cá nhân từ racer_snapshots
+    const { data: snapData } = await supabase
+      .from('racer_snapshots')
+      .select('current_region, peak_g_force, gps_satellites, gps_signal_status')
+      .eq('user_id', userId)
+      .single();
 
-    // Peak G-Force (từ device motion hoặc tính từ acceleration history)
-    const simulatedGForce = 1.2 + Math.random() * 0.6; // 1.2G ~ 1.8G
-    setPeakGForce(parseFloat(simulatedGForce.toFixed(2)));
+    if (snapData) {
+      setCurrentRegion(snapData.current_region);
+      setPeakGForce(snapData.peak_g_force);
+      setGpsSatellites(snapData.gps_satellites);
+      setGpsSignalStatus(snapData.gps_signal_status);
+    } else {
+      // Fallback nếu chưa có snapshot
+      setCurrentRegion(bestRunData?.region || 'TP.HCM');
+      setPeakGForce(1.45);
+      setGpsSatellites(16);
+      setGpsSignalStatus('TÍN HIỆU TỐT');
+    }
 
-    // GPS satellites (dựa trên tín hiệu thực tế)
-    const satellites = 14 + Math.floor(Math.random() * 8);
-    setGpsSatellites(satellites);
+    // Fetch Hot Zones từ region_daily_hotspots
+    const { data: hotspots } = await supabase
+      .from('region_daily_hotspots')
+      .select('zone_name, top_speed, peak_g_force')
+      .eq('region', bestRunData?.region || 'TP.HCM')
+      .eq('snapshot_date', today)
+      .order('top_speed', { ascending: false })
+      .limit(3);
 
-    // GPS signal status
-    setGpsSignalStatus(satellites >= 18 ? 'TÍN HIỆU RẤT TỐT' : satellites >= 12 ? 'TÍN HIỆU TỐT' : 'TÍN HIỆU TRUNG BÌNH');
-
-    // Nearby hot zones (có thể query top speed theo region)
-    setNearbyZones([
-      { name: 'Bình Dương', topSpeed: 142 + Math.floor(Math.random() * 12), gForce: 1.3 + Math.random() * 0.4 },
-      { name: 'Đồng Nai', topSpeed: 138 + Math.floor(Math.random() * 15), gForce: 1.4 + Math.random() * 0.3 },
-      { name: 'Long An', topSpeed: 145 + Math.floor(Math.random() * 10), gForce: 1.5 + Math.random() * 0.5 },
-    ]);
+    if (hotspots && hotspots.length > 0) {
+      setNearbyZones(
+        hotspots.map((h: any) => ({
+          name: h.zone_name,
+          topSpeed: h.top_speed,
+          gForce: h.peak_g_force,
+        }))
+      );
+    } else {
+      // Fallback nếu chưa có dữ liệu hot zones hôm nay
+      setNearbyZones([
+        { name: 'Bình Dương', topSpeed: 142, gForce: 1.4 },
+        { name: 'Đồng Nai', topSpeed: 138, gForce: 1.3 },
+        { name: 'Long An', topSpeed: 145, gForce: 1.6 },
+      ]);
+    }
 
     setIsAuthLoading(false);
   }, []);
