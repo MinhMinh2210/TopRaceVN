@@ -325,7 +325,7 @@ export default function RunPage() {
 
     // ==================== VALIDATION MỚI ====================
     const isValid =
-      finalMaxSpeed >= 40 && // phải chạy thật (không đứng yên)
+      finalMaxSpeed >= 1 && // phải chạy thật (không đứng yên)
       currentRegion !== 'Đang xác định...' &&
       currentRegion !== 'Việt Nam';
 
@@ -591,9 +591,9 @@ export default function RunPage() {
                   <AlertCircle className="mx-auto h-12 w-12 text-red-400 mb-4" />
                   <p className="text-red-400 text-xl font-semibold">Run không hợp lệ</p>
                   <p className="text-zinc-400 mt-2">
-                    {runResult.maxSpeed < 40
-                      ? 'Tốc độ quá thấp (dưới 40 km/h) hoặc bạn chưa di chuyển.'
-                      : 'Khu vực chưa được xác định rõ ràng.'}
+                    {runResult.maxSpeed < 1
+                      ? 'Tốc độ quá thấp hoặc bạn chưa di chuyển.'
+                      : 'Khu vực chưa xác định.'}
                   </p>
                   <p className="text-zinc-400 text-sm mt-4">Kết quả này không được ghi nhận vào bảng xếp hạng.</p>
                 </div>
