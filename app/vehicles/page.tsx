@@ -47,7 +47,7 @@ export default function VehiclesPage() {
     model: '',
     vehicle_type: 'xe_ga' as const,
     year: '',
-    mod_level: 'Stock',
+    mod_level: 'Zin',
   });
 
   // ==================== INIT AUTH + LOAD VEHICLES ====================
@@ -313,7 +313,7 @@ export default function VehiclesPage() {
                   Nickname xe <span className="text-red-500">*</span>
                 </Label>
                 <Input
-                  placeholder="White SH350 Demon"
+                  placeholder="Ví dụ:SH350 + cấu hình xe + tên chủ xe"
                   value={form.nickname}
                   onChange={(e) => setForm({ ...form, nickname: e.target.value })}
                   className="h-14 text-base mt-2 bg-zinc-950 border-zinc-700 focus:border-cyan-400"
@@ -378,9 +378,14 @@ export default function VehiclesPage() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="Stock">Stock</SelectItem>
-                      <SelectItem value="Stage 1">Stage 1</SelectItem>
-                      <SelectItem value="Stage 2">Stage 2</SelectItem>
-                      <SelectItem value="God Mode">God Mode</SelectItem>
+                      <SelectItem value="Stage 1">PXL</SelectItem>
+                      <SelectItem value="Stage 2">CXN </SelectItem>
+                      <SelectItem value="God Mode">NPXG</SelectItem>
+                      <SelectItem value="God Mode">54zz</SelectItem>
+                      <SelectItem value="God Mode">62zz</SelectItem>
+                      <SelectItem value="God Mode">65zz</SelectItem>
+                      <SelectItem value="God Mode">68zz</SelectItem>
+                      <SelectItem value="God Mode">72+</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
