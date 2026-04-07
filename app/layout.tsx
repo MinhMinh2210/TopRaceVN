@@ -5,6 +5,7 @@ import './globals.css';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { AppSidebar } from '@/app/components/app-sidebar';
 import { MobileBottomNav } from '@/app/components/mobile-bottom-nav';
+import DonateModal from '@/app/components/donate-modal';
 
 const inter = Inter({ subsets: ['latin', 'vietnamese'] });
 
@@ -65,6 +66,8 @@ export default function RootLayout({
           </div>
         </SidebarProvider>
       </body>
+      <DonateModal />
     </html>
+    
   );
 }

@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/dialog';
 import { Play, Square, RotateCcw, AlertCircle, Car, Download } from 'lucide-react';
 import html2canvas from 'html2canvas';
+import DonateModal from '../components/donate-modal';
 
 type Vehicle = {
   id: number;
@@ -725,6 +726,7 @@ export default function RunPage() {
           81 VIETNAM SPEED RANK
         </h1>
       </div>
+      <DonateModal />
     </div>
   );
 }

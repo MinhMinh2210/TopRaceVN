@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Car, Plus, Edit, Trash2 } from 'lucide-react';
+import DonateModal from '../components/donate-modal';
 
 type Vehicle = {
   id: number;
@@ -400,6 +401,7 @@ if (isAuthLoading) {
           </DialogContent>
         </Dialog>
       </div>
+      <DonateModal />
     </div>
   );
 }

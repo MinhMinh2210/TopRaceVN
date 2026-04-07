@@ -9,6 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
 import { Trophy, Medal } from 'lucide-react';
+import DonateModal from '../components/donate-modal';
 
 export default function LeaderboardPage() {
   const [user, setUser] = useState<any>(null);
@@ -427,6 +428,7 @@ function LeaderboardTable({
           </div>
         );
       })}
+      <DonateModal />
     </div>
   );
 }

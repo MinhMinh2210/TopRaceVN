@@ -10,6 +10,7 @@ import { getCurrentUser } from '@/app/features/auth/getUser';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import DonateModal from './components/donate-modal';
 
 type Vehicle = {
   id: number;
@@ -416,6 +417,8 @@ if (isAuthLoading) {
           </div>
         </CardContent>
       </Card>
+          <DonateModal />
     </div>
+
   );
 }
