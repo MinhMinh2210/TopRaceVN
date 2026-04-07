@@ -20,7 +20,7 @@ export default function DonateModal() {
     const now = Date.now();
 
     // Hiện mỗi lần vào tab, nhưng cách nhau ít nhất 30 phút (tránh reload liên tục)
-    if (!lastShown || now - parseInt(lastShown) > 30 * 60 * 1000) {
+    if (!lastShown || now - parseInt(lastShown) > 5 * 60 * 1000) {
       setIsOpen(true);
       localStorage.setItem('donateModalLastShown', now.toString());
     }
@@ -41,7 +41,7 @@ export default function DonateModal() {
           <DialogTitle className="text-2xl text-center text-yellow-400">🚨 XIN DONATE LÀM PHÍ DUY TRÌ WEB 🚨</DialogTitle>
           <DialogDescription className="text-center text-lg">
             Mình làm WEB vui để bổ sung cho dự án cho năm học mới, mình không nghĩ anh em truy cập và ủng hộ nhiều, thành ra SERVER sắp hết phí <br />
-            <strong>Anh em donate ít tiền giúp tao gia hạn server để mọi người tiếp tục chơi nhé!</strong>
+            <strong>Anh em donate ít tiền giúp tao gia hạn server, mình chỉ còn phí duy trì 1 ngày thôi!</strong>
           </DialogDescription>
         </DialogHeader>
 
