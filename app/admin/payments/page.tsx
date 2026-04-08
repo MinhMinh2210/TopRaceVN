@@ -1,57 +1,117 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
-import { AlertCircle, CheckCircle } from 'lucide-react';
+import { CheckCircle, AlertCircle, Trash2 } from 'lucide-react';
 
 export default function AdminPaymentsPage() {
-  const [memo, setMemo] = useState('');
+  const [pendingPayments, setPendingPayments] = useState<any[]>([]);
+  const [users, setUsers] = useState<any[]>([]);
+  const [packages, setPackages] = useState<any[]>([]);
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [selectedPackageId, setSelectedPackageId] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<any>(null);
   const [error, setError] = useState('');
 
-  const handleApprove = async () => {
-    if (!memo.trim()) return;
+  // Load danh sách yêu cầu đang chờ + user + gói
+  const loadData = async () => {
     setLoading(true);
-    setError('');
-    setResult(null);
+
+    // Load pending payments
+    const { data: payments } = await supabase
+      .from('payment_logs')
+      .select(`
+        *,
+        profiles!user_id (nickname),
+        packages!package_id (display_name, price)
+      `)
+      .eq('status', 'pending')
+      .order('created_at', { ascending: false });
+
+    setPendingPayments(payments || []);
+
+    // Load users và packages (cho phần duyệt thủ công)
+    const [uRes, pRes] = await Promise.all([
+      supabase.from('profiles').select('id, nickname').order('nickname'),
+      supabase.from('packages').select('*').eq('is_active', true),
+    ]);
+
+    setUsers(uRes.data || []);
+    setPackages(pRes.data || []);
+
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  // Cấp gói ngay từ pending request
+  const approvePending = async (payment: any) => {
+    if (!confirm(`Xác nhận cấp gói cho ${payment.profiles?.nickname}?`)) return;
+
+    setLoading(true);
 
     try {
-      // Parse memo (ví dụ: USER123 PRO30)
-      const match = memo.match(/USER([a-zA-Z0-9]+)/i);
-      const userIdPart = match ? match[1] : memo.trim();
-
-      // Tìm user
-      const { data: user } = await supabase
-        .from('profiles')
-        .select('id, nickname')
-        .eq('id', userIdPart)
-        .single();
-
-      if (!user) throw new Error('Không tìm thấy user');
-
-      // Tìm gói theo tên trong memo
-      const packageName = memo.toUpperCase().includes('PRO') ? 'PRO30' : 
-                         memo.toUpperCase().includes('VIP') ? 'VIP90' : 'BASIC30';
-
-      const { data: pkg } = await supabase
-        .from('packages')
-        .select('*')
-        .eq('name', packageName)
-        .single();
-
-      if (!pkg) throw new Error('Không tìm thấy gói cước');
-
-      // Cấp gói
+      const pkg = payment.packages;
       const endDate = new Date();
-      endDate.setDate(endDate.getDate() + pkg.duration_days);
+      if (pkg.duration_type === 'minutes') endDate.setMinutes(endDate.getMinutes() + pkg.duration_value);
+      else if (pkg.duration_type === 'hours') endDate.setHours(endDate.getHours() + pkg.duration_value);
+      else endDate.setDate(endDate.getDate() + pkg.duration_value);
 
       await supabase.from('user_subscriptions').insert({
-        user_id: user.id,
+        user_id: payment.user_id,
+        package_id: payment.package_id,
+        start_date: new Date().toISOString(),
+        end_date: endDate.toISOString(),
+        remaining_runs: pkg.max_runs,
+        status: 'active'
+      });
+
+      // Cập nhật status payment_logs
+      await supabase
+        .from('payment_logs')
+        .update({ status: 'approved', approved_at: new Date().toISOString() })
+        .eq('id', payment.id);
+
+      alert(`✅ Đã cấp gói ${pkg.display_name} cho user ${payment.profiles?.nickname}`);
+      loadData(); // refresh danh sách
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Xóa yêu cầu pending
+  const deletePending = async (id: string) => {
+    if (!confirm('Xóa yêu cầu thanh toán này?')) return;
+    await supabase.from('payment_logs').delete().eq('id', id);
+    loadData();
+  };
+
+  // Duyệt thủ công (giữ lại như cũ)
+  const handleApproveManual = async () => {
+    if (!selectedUserId || !selectedPackageId) return;
+    setLoading(true);
+    setError('');
+
+    try {
+      const { data: pkg } = await supabase.from('packages').select('*').eq('id', selectedPackageId).single();
+      if (!pkg) throw new Error('Không tìm thấy gói');
+
+      const endDate = new Date();
+      if (pkg.duration_type === 'minutes') endDate.setMinutes(endDate.getMinutes() + pkg.duration_value);
+      else if (pkg.duration_type === 'hours') endDate.setHours(endDate.getHours() + pkg.duration_value);
+      else endDate.setDate(endDate.getDate() + pkg.duration_value);
+
+      await supabase.from('user_subscriptions').insert({
+        user_id: selectedUserId,
         package_id: pkg.id,
         start_date: new Date().toISOString(),
         end_date: endDate.toISOString(),
@@ -59,60 +119,101 @@ export default function AdminPaymentsPage() {
         status: 'active'
       });
 
-      // Lưu log
-      await supabase.from('payment_logs').insert({
-        user_id: user.id,
-        package_id: pkg.id,
-        amount: pkg.price,
-        memo: memo,
-        approved_by: null // sau này có thể thêm admin id
-      });
-
-      setResult({ success: true, user, package: pkg });
+      setResult({ success: true, userId: selectedUserId, package: pkg });
+      loadData();
     } catch (err: any) {
-      setError(err.message || 'Lỗi khi duyệt');
+      setError(err.message || 'Lỗi khi cấp gói');
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6 max-w-5xl mx-auto">
+      <h1 className="text-4xl font-black mb-8">Duyệt Thanh Toán</h1>
+
+      {/* DANH SÁCH YÊU CẦU ĐANG CHỜ */}
+      <Card className="mb-10">
+        <CardHeader>
+          <CardTitle>Yêu cầu thanh toán đang chờ ({pendingPayments.length})</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {pendingPayments.length === 0 ? (
+            <p className="text-zinc-400 py-8 text-center">Không có yêu cầu thanh toán nào đang chờ</p>
+          ) : (
+            <div className="space-y-4">
+              {pendingPayments.map((p) => (
+                <Card key={p.id} className="bg-zinc-900 border-zinc-700">
+                  <CardContent className="p-6 flex items-center justify-between">
+                    <div>
+                      <p className="font-semibold text-lg">{p.profiles?.nickname || 'Unknown User'}</p>
+                      <p className="text-sm text-zinc-400">
+                        {p.packages?.display_name} • {p.amount.toLocaleString()}đ
+                      </p>
+                      <p className="text-xs text-cyan-400 font-mono mt-1">{p.memo}</p>
+                    </div>
+                    <div className="flex gap-3">
+                      <Button onClick={() => approvePending(p)} className="bg-green-600 hover:bg-green-700">
+                        Cấp gói ngay
+                      </Button>
+                      <Button variant="destructive" size="icon" onClick={() => deletePending(p.id)}>
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* DUYỆT THỦ CÔNG (giữ lại) */}
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <span>Duyệt Thanh Toán Thủ Công</span>
-          </CardTitle>
+          <CardTitle>Duyệt Thanh Toán Thủ Công</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
           <div>
-            <Label>Nội dung chuyển khoản (memo)</Label>
-            <Input
-              placeholder="Ví dụ: USER123 PRO30"
-              value={memo}
-              onChange={(e) => setMemo(e.target.value)}
-              className="h-12 text-lg"
-            />
-            <p className="text-xs text-zinc-400 mt-1">User sẽ ghi USERID + tên gói trong nội dung chuyển khoản</p>
+            <Label>Chọn User</Label>
+            <Select value={selectedUserId} onValueChange={setSelectedUserId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn user..." />
+              </SelectTrigger>
+              <SelectContent>
+                {users.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.nickname}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
-          <Button onClick={handleApprove} disabled={loading || !memo} className="w-full py-6 text-lg">
-            {loading ? 'Đang xử lý...' : 'Duyệt & Cấp Gói'}
+          <div>
+            <Label>Chọn gói cước</Label>
+            <Select value={selectedPackageId} onValueChange={setSelectedPackageId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Chọn gói..." />
+              </SelectTrigger>
+              <SelectContent>
+                {packages.map((p) => (
+                  <SelectItem key={p.id} value={p.id}>
+                    {p.display_name} - {p.price.toLocaleString()}đ
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <Button onClick={handleApproveManual} disabled={loading || !selectedUserId || !selectedPackageId} className="w-full py-6 text-lg">
+            {loading ? 'Đang cấp gói...' : 'Duyệt & Cấp Gói Ngay'}
           </Button>
 
-          {error && (
-            <div className="bg-red-900/30 border border-red-500 text-red-300 p-4 rounded-2xl flex gap-3">
-              <AlertCircle className="w-5 h-5 mt-0.5" />
-              <p>{error}</p>
-            </div>
-          )}
-
+          {error && <p className="text-red-400 text-center">{error}</p>}
           {result && (
-            <div className="bg-green-900/30 border border-green-500 text-green-300 p-6 rounded-3xl">
-              <CheckCircle className="w-8 h-8 mx-auto mb-4" />
-              <p className="text-center text-lg font-medium">
-                Đã cấp gói <strong>{result.package.display_name}</strong> cho user <strong>{result.user.nickname}</strong>
-              </p>
+            <div className="bg-green-900/30 border border-green-500 text-green-300 p-6 rounded-3xl text-center">
+              Đã cấp gói <strong>{result.package.display_name}</strong> cho user <strong>{result.userId}</strong>
             </div>
           )}
         </CardContent>
