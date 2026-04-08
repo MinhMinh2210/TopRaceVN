@@ -66,7 +66,6 @@ export default function RootLayout({
           </div>
         </SidebarProvider>
       </body>
-      <DonateModal />
     </html>
     
   );
