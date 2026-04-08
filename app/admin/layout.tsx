@@ -1,11 +1,56 @@
 'use client';
 
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, Package, Users, CreditCard, Database, LogOut } from 'lucide-react';
+import { supabase } from '@/lib/supabase/client';
+import { getCurrentUser } from '@/app/features/auth/getUser';
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const pathname = usePathname();
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const checkAdmin = async () => {
+      const currentUser = await getCurrentUser();
+      if (!currentUser) {
+        router.push('/'); // chưa login → về trang chủ
+        return;
+      }
+
+      // Kiểm tra quyền admin trong profiles
+      const { data } = await supabase
+        .from('profiles')
+        .select('is_admin')
+        .eq('id', currentUser.id)
+        .single();
+
+      if (!data || data.is_admin !== true) {
+        alert('Bạn không có quyền truy cập Admin Panel!');
+        router.push('/');
+        return;
+      }
+
+      setIsAdmin(true);
+      setLoading(false);
+    };
+
+    checkAdmin();
+  }, [router]);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen bg-zinc-950 text-white">
+        Đang kiểm tra quyền admin...
+      </div>
+    );
+  }
+
+  if (!isAdmin) return null; // đã redirect rồi
 
   const navItems = [
     { href: '/admin', label: 'Dashboard', icon: LayoutDashboard },
@@ -17,6 +62,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
 
   return (
     <div className="flex min-h-screen bg-zinc-950 text-white">
+      {/* Sidebar */}
       <div className="w-64 bg-zinc-900 border-r border-zinc-800 p-4 flex flex-col">
         <div className="text-3xl font-black mb-10 text-cyan-400 tracking-tighter">ADMIN</div>
         
@@ -47,6 +93,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
         </button>
       </div>
 
+      {/* Nội dung chính */}
       <div className="flex-1 overflow-auto p-6">
         {children}
       </div>
