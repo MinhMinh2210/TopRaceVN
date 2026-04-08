@@ -463,7 +463,6 @@ export default function RunPage() {
       return;
     }
 
-    // LUÔN insert run (kể cả 0km/h)
     await supabase.from('runs').insert({
       user_id: currentUser.id,
       vehicle_id: selectedVehicle.id,
@@ -478,12 +477,11 @@ export default function RunPage() {
       end_lng: null,
       region: currentRegion,
       gps_accuracy: 'Good',
-      is_low_accuracy: false,           // vẫn false để trigger DB hoạt động
+      is_low_accuracy: false,
       ai_analysis: null,
       ai_verified: false,
     });
 
-    // LUÔN trừ lượt free run (kể cả 0km/h)
     if (!hasActiveSub) {
       const newUsed = freeRunsUsed + 1;
       const { error: updateError } = await supabase
@@ -494,7 +492,6 @@ export default function RunPage() {
       if (!updateError) setFreeRunsUsed(newUsed);
     }
 
-    // Background tính rank
     const processInBackground = async () => {
       try {
         const today = new Date().toISOString().split('T')[0];
@@ -581,7 +578,7 @@ export default function RunPage() {
     return countdown;
   };
 
-  // ==================== THANH TOÁN (giữ nguyên) ====================
+  // ==================== THANH TOÁN ====================
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
     setShowBuyModal(false);
@@ -645,6 +642,7 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
+      {/* BANNER HẾT LƯỢT (giữ nguyên) */}
       {!canStartRun && (
         <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
@@ -653,6 +651,19 @@ export default function RunPage() {
             <p className="text-sm">Mua gói cước để tiếp tục lưu run và tính rank</p>
           </div>
           <Button onClick={() => setShowBuyModal(true)} className="bg-amber-400 hover:bg-amber-300 text-black">Mua ngay</Button>
+        </div>
+      )}
+
+      {/* === BANNER MỚI: 2 LẦN THỬ NGHIỆM GPS === */}
+      {!hasActiveSub && freeRunsUsed < 2 && (
+        <div className="bg-sky-900/30 border border-sky-400 text-sky-300 p-5 rounded-3xl flex items-center gap-4">
+          <AlertCircle className="w-6 h-6 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="font-semibold">Bạn có 2 lần bấm GPS trải nghiệm</p>
+            <p className="text-sm">
+              Sẽ không lưu vào bảng rank. Muốn đua top hãy thử 2 lần và mua gói leo rank
+            </p>
+          </div>
         </div>
       )}
 
@@ -700,10 +711,33 @@ export default function RunPage() {
             onClick={startRun}
             disabled={isStarting || !canStartRun}
             className={`w-[90%] py-12 text-4xl rounded-3xl transition-all ${
-              !canStartRun ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+              !canStartRun
+                ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed'
+                : hasActiveSub
+                ? 'bg-green-600 hover:bg-green-700'
+                : 'bg-yellow-500 hover:bg-yellow-400 text-black font-bold' // ← NÚT MÀU VÀNG CHO 2 LẦN THỬ
             }`}
           >
-            {isStarting ? <>Loading</> : !canStartRun ? <>Mua gói để chạy</> : <><Play className="mr-6 h-10 w-10" />START</>}
+            {isStarting ? (
+              <>Loading</>
+            ) : !canStartRun ? (
+              <>Mua gói để chạy</>
+            ) : hasActiveSub ? (
+              <>
+                <Play className="mr-6 h-10 w-10" />
+                START
+              </>
+            ) : freeRunsUsed === 1 ? (
+              <>
+                <Play className="mr-6 h-10 w-10" />
+                THỬ BẤM - LẦN CUỐI RỒI
+              </>
+            ) : (
+              <>
+                <Play className="mr-6 h-10 w-10" />
+                THỬ BẤM
+              </>
+            )}
           </Button>
         ) : isRunning ? (
           <Button onClick={stopRun} className="w-full py-12 text-4xl bg-red-600 hover:bg-red-700 rounded-3xl">
@@ -798,7 +832,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* MODAL DANH SÁCH GÓI + THANH TOÁN (giữ nguyên) */}
+      {/* MODAL GÓI CƯỚC + THANH TOÁN (giữ nguyên) */}
       <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
         <DialogContent className="w-[95vw] max-w-lg rounded-3xl">
           <DialogHeader>
