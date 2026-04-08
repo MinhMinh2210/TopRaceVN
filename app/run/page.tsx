@@ -178,20 +178,12 @@ export default function RunPage() {
   const lastSpeedUpdateRef = useRef(0);
   const maxSpeedRef = useRef(0);
 
-  // ==================== DEVICE MOTION & FUSED SPEED (giữ nguyên) ====================
+  // ==================== DEVICE MOTION & FUSED SPEED ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
     if (event.acceleration) {
-      accelerationRef.current = {
-        x: event.acceleration.x ?? 0,
-        y: event.acceleration.y ?? 0,
-        z: event.acceleration.z ?? 0,
-      };
+      accelerationRef.current = { x: event.acceleration.x ?? 0, y: event.acceleration.y ?? 0, z: event.acceleration.z ?? 0 };
     } else if (event.accelerationIncludingGravity) {
-      accelerationRef.current = {
-        x: event.accelerationIncludingGravity.x ?? 0,
-        y: event.accelerationIncludingGravity.y ?? 0,
-        z: event.accelerationIncludingGravity.z ?? 0,
-      };
+      accelerationRef.current = { x: event.accelerationIncludingGravity.x ?? 0, y: event.accelerationIncludingGravity.y ?? 0, z: event.accelerationIncludingGravity.z ?? 0 };
     }
   }, []);
 
@@ -245,30 +237,19 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== INIT USER + KIỂM TRA FREE + SUBSCRIPTION ====================
+  // ==================== INIT ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
       setUser(u);
-      if (!u) {
-        setIsAuthLoading(false);
-        return;
-      }
+      if (!u) return setIsAuthLoading(false);
 
-      const { data: vehicleData } = await supabase
-        .from('vehicles')
-        .select('id, nickname, brand, model, vehicle_type')
-        .eq('user_id', u.id);
-      const vehicleList = vehicleData ?? [];
-      setVehicles(vehicleList);
-      if (vehicleList.length > 0 && !selectedVehicle) setSelectedVehicle(vehicleList[0]);
+      const { data: vData } = await supabase.from('vehicles').select('*').eq('user_id', u.id);
+      setVehicles(vData ?? []);
+      if (vData?.length) setSelectedVehicle(vData[0]);
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('free_runs_used')
-        .eq('id', u.id)
-        .single();
-      setFreeRunsUsed(profile?.free_runs_used || 0);
+      const { data: p } = await supabase.from('profiles').select('free_runs_used').eq('id', u.id).single();
+      setFreeRunsUsed(p?.free_runs_used || 0);
 
       const { data: sub } = await supabase
         .from('user_subscriptions')
@@ -279,11 +260,7 @@ export default function RunPage() {
         .single();
       setHasActiveSub(!!sub && sub.remaining_runs > 0);
 
-      const { data: pkgData } = await supabase
-        .from('packages')
-        .select('*')
-        .eq('is_active', true)
-        .order('price');
+      const { data: pkgData } = await supabase.from('packages').select('*').eq('is_active', true).order('price');
       setPackages(pkgData || []);
 
       setIsAuthLoading(false);
@@ -292,10 +269,7 @@ export default function RunPage() {
   }, [selectedVehicle]);
 
   const handleGoogleLogin = useCallback(async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin + '/run' },
-    });
+    await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/run' } });
   }, []);
 
   // ==================== CHECK GPS & START RUN ====================
@@ -331,12 +305,10 @@ export default function RunPage() {
 
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting) return;
-
     if (!canStartRun) {
       setShowBuyModal(true);
       return;
     }
-
     if (currentRegion === 'Đang xác định...') {
       setIsAutoCheckingOnStart(true);
       checkGPS().then(() => {
@@ -586,7 +558,7 @@ export default function RunPage() {
     return countdown;
   };
 
-  // ==================== THANH TOÁN CHI TIẾT ====================
+  // ==================== THANH TOÁN ====================
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
     setShowBuyModal(false);
@@ -607,9 +579,8 @@ export default function RunPage() {
       status: 'pending',
     });
 
-    if (error) {
-      alert('Lỗi: ' + error.message);
-    } else {
+    if (error) alert('Lỗi: ' + error.message);
+    else {
       alert('✅ Yêu cầu thanh toán đã gửi!\nAdmin sẽ kiểm tra và cấp gói trong dashboard.');
       setShowPaymentModal(false);
       setSelectedPackage(null);
@@ -651,7 +622,6 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-      {/* BANNER KHI HẾT FREE */}
       {!canStartRun && (
         <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
@@ -665,7 +635,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* CARD TỐC ĐỘ LIVE */}
+      {/* CARD TỐC ĐỘ LIVE + GPS STATUS + NÚT START (giữ nguyên) */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
         <CardContent className="p-10 text-center">
           <p className="text-zinc-400 text-base mb-3">SPEED</p>
@@ -678,7 +648,6 @@ export default function RunPage() {
         </CardContent>
       </Card>
 
-      {/* GPS STATUS */}
       <div className="bg-zinc-900 border border-zinc-700 rounded-3xl p-6 text-sm space-y-3">
         <div className="flex justify-between items-center">
           <span className="text-zinc-400">Khu vực:</span>
@@ -703,7 +672,6 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* NÚT START */}
       <div className="flex justify-center -mt-2">
         {!isRunning && !showResult ? (
           <Button
@@ -746,7 +714,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* BẢNG KẾT QUẢ */}
+      {/* KẾT QUẢ */}
       {showResult && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4">
           <Card ref={resultRef} className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
@@ -827,9 +795,7 @@ export default function RunPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-4xl font-black text-cyan-400">{pkg.price.toLocaleString()}đ</p>
-                    <Button size="sm" className="mt-3" onClick={() => openPaymentModal(pkg)}>
-                      Mua ngay
-                    </Button>
+                    <Button size="sm" className="mt-3" onClick={() => openPaymentModal(pkg)}>Mua ngay</Button>
                   </div>
                 </CardContent>
               </Card>
@@ -841,7 +807,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL CHUYỂN KHOẢN CHI TIẾT (có trường chỉnh sửa) */}
+      {/* MODAL CHUYỂN KHOẢN CHI TIẾT */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -851,16 +817,16 @@ export default function RunPage() {
             <div className="bg-zinc-900 rounded-2xl p-5 space-y-5">
               <div>
                 <Label>Ngân hàng</Label>
-                <Input defaultValue="Vietcombank" className="bg-black/50" />
+                <Input value="Vietcombank" readOnly className="bg-black/50" />
               </div>
               <div>
                 <Label>Tên chủ tài khoản</Label>
-                <Input defaultValue="TOP RACE VN" className="bg-black/50" />
+                <Input value="TOP RACE VN" readOnly className="bg-black/50" />
               </div>
               <div>
                 <Label>Số tài khoản</Label>
                 <div className="flex gap-2">
-                  <Input defaultValue="123456789" className="bg-black/50 font-mono" />
+                  <Input value="123456789" readOnly className="bg-black/50 font-mono" />
                   <Button onClick={() => copyToClipboard('123456789')}>Copy</Button>
                 </div>
               </div>
