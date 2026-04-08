@@ -32,9 +32,13 @@ type Profile = {
 type RunHistory = {
   id: number;
   max_speed: number;
+  zero_to_sixty: number | null;
   zero_to_hundred: number | null;
-  created_at: string;
+  distance_to_max_speed: number | null;
+  gps_accuracy: string | null;
+  is_low_accuracy: boolean | null;
   region: string;
+  created_at: string;
   vehicles: {
     nickname: string;
     vehicle_type: string;
@@ -67,14 +71,26 @@ export default function MyProfilePage() {
       return;
     }
 
-    // Fetch parallel để tiết kiệm Edge Requests
     const [profileRes, vehiclesRes, runsRes, statsRes, bestRes] = await Promise.all([
       supabase.from('profiles').select('nickname, full_name, avatar_url, bio').eq('id', currentUser.id).single(),
       supabase.from('vehicles').select('*').eq('user_id', currentUser.id),
-      supabase.from('runs').select(`
-        id, max_speed, zero_to_hundred, created_at, region,
-        vehicles (nickname, vehicle_type)
-      `).eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(3),
+      supabase
+        .from('runs')
+        .select(`
+          id, 
+          max_speed, 
+          zero_to_sixty, 
+          zero_to_hundred, 
+          distance_to_max_speed,
+          gps_accuracy,
+          is_low_accuracy,
+          region,
+          created_at,
+          vehicles (nickname, vehicle_type)
+        `)
+        .eq('user_id', currentUser.id)
+        .order('created_at', { ascending: false })
+        .limit(3),
       supabase.from('runs').select('*', { count: 'exact' }).eq('user_id', currentUser.id),
       supabase.from('runs').select('max_speed').eq('user_id', currentUser.id).order('max_speed', { ascending: false }).limit(1),
     ]);
@@ -86,14 +102,18 @@ export default function MyProfilePage() {
     const formattedRuns = (runsRes.data || []).map((r: any) => ({
       id: r.id,
       max_speed: r.max_speed,
+      zero_to_sixty: r.zero_to_sixty,
       zero_to_hundred: r.zero_to_hundred,
-      created_at: r.created_at,
+      distance_to_max_speed: r.distance_to_max_speed,
+      gps_accuracy: r.gps_accuracy,
+      is_low_accuracy: r.is_low_accuracy,
       region: r.region || 'Không xác định',
+      created_at: r.created_at,
       vehicles: r.vehicles || null,
     }));
+
     setRunsHistory(formattedRuns);
 
-    // Stats
     const runCount = statsRes.count || 0;
     const bestSpeed = bestRes.data?.[0]?.max_speed || 0;
 
@@ -106,11 +126,7 @@ export default function MyProfilePage() {
       rank = (higher || 0) + 1;
     }
 
-    setStats({
-      runs: runCount,
-      bestSpeed: bestSpeed,
-      rank: rank,
-    });
+    setStats({ runs: runCount, bestSpeed, rank });
 
     setIsAuthLoading(false);
   }, []);
@@ -131,30 +147,26 @@ export default function MyProfilePage() {
     await logout();
   }, []);
 
-  // ==================== AVATAR UPLOAD ≤ 5MB ====================
+  // ==================== AVATAR ≤ 5MB ====================
   const handleAvatarChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     if (file.size > 5 * 1024 * 1024) {
       alert('Ảnh đại diện không được vượt quá 5MB!');
       e.target.value = '';
       return;
     }
-
     setAvatarFile(file);
     setPreviewUrl(URL.createObjectURL(file));
   }, []);
 
   const handleUpdateProfile = useCallback(async () => {
     if (!user) return;
-
     let avatarUrl = editForm.avatar_url;
 
     if (avatarFile) {
       const fileExt = avatarFile.name.split('.').pop();
       const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-
       await supabase.storage.from('avatars').upload(fileName, avatarFile, { upsert: true });
       const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
       avatarUrl = data.publicUrl;
@@ -176,7 +188,7 @@ export default function MyProfilePage() {
     setPreviewUrl('');
   }, [user, editForm, avatarFile]);
 
-  // ==================== LOADING AUTH ====================
+  // ==================== LOADING ====================
   if (isAuthLoading) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
@@ -185,7 +197,6 @@ export default function MyProfilePage() {
     );
   }
 
-  // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
@@ -196,12 +207,10 @@ export default function MyProfilePage() {
             </div>
             <h1 className="text-3xl font-black mb-2">Chào mừng trở lại!</h1>
             <p className="text-zinc-400 mb-8">Đăng nhập để xem profile và lịch sử Run của bạn</p>
-
-            <Button onClick={handleGoogleLogin} className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3">
+            <Button onClick={handleGoogleLogin} className="w-full py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3">
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Google Login
             </Button>
-
             <Button variant="outline" className="w-full mt-4 py-6 text-base" onClick={() => window.location.href = '/'}>
               ← Quay về trang chủ
             </Button>
@@ -211,11 +220,11 @@ export default function MyProfilePage() {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP - PROFILE ====================
   const isTopRank = typeof stats.rank === 'number' && stats.rank <= 3;
 
   return (
     <div className="space-y-6 pb-20 px-4 max-w-2xl mx-auto">
+      {/* Avatar + Info */}
       <div className="flex flex-col items-center text-center pt-4">
         <div className="relative">
           <Avatar className="w-28 h-28 mb-4 border-4 border-green-500">
@@ -224,11 +233,9 @@ export default function MyProfilePage() {
               {profile?.nickname?.[0] || '?'}
             </AvatarFallback>
           </Avatar>
-
           {isTopRank && (
             <div className="absolute bottom-1 right-1 bg-gradient-to-br from-yellow-400 to-amber-500 text-black text-xs font-bold px-3 py-0.5 rounded-2xl shadow-2xl shadow-yellow-500/50 flex items-center gap-1 border-2 border-white">
-              <Trophy className="w-3 h-3" />
-              #{stats.rank}
+              <Trophy className="w-3 h-3" />#{stats.rank}
             </div>
           )}
         </div>
@@ -238,8 +245,7 @@ export default function MyProfilePage() {
         {profile?.bio && <p className="text-sm text-zinc-300 mt-6 max-w-md">{profile.bio}</p>}
 
         <Button className="mt-8 gap-2" size="lg" onClick={() => setEditOpen(true)}>
-          <Edit className="h-4 w-4" />
-          Chỉnh sửa profile
+          <Edit className="h-4 w-4" /> Chỉnh sửa profile
         </Button>
       </div>
 
@@ -247,8 +253,7 @@ export default function MyProfilePage() {
       <Card className="bg-zinc-900 border-zinc-800">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Car className="h-5 w-5" />
-            Xe của tôi ({vehicles.length})
+            <Car className="h-5 w-5" /> Xe của tôi ({vehicles.length})
           </CardTitle>
         </CardHeader>
         <CardContent className="space-y-3">
@@ -271,8 +276,7 @@ export default function MyProfilePage() {
       <Card className="bg-zinc-900 border-zinc-800">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Trophy className="h-5 w-5" />
-            Thống kê
+            <Trophy className="h-5 w-5" /> Thống kê
           </CardTitle>
         </CardHeader>
         <CardContent className="grid grid-cols-3 gap-4 text-center">
@@ -293,15 +297,11 @@ export default function MyProfilePage() {
         </CardContent>
       </Card>
 
-      {/* Lịch sử Run - chỉ 3 lần gần nhất */}
-      <Card 
-        className="bg-zinc-900 border-zinc-800 cursor-pointer hover:bg-zinc-800 transition-colors"
-        onClick={() => setHistoryOpen(true)}
-      >
+      {/* Lịch sử Run */}
+      <Card className="bg-zinc-900 border-zinc-800 cursor-pointer hover:bg-zinc-800 transition-colors" onClick={() => setHistoryOpen(true)}>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Clock className="h-5 w-5" />
-            Lịch sử Run ({runsHistory.length})
+            <Clock className="h-5 w-5" /> Lịch sử Run ({runsHistory.length})
           </CardTitle>
         </CardHeader>
         <CardContent className="text-center text-zinc-400 py-6">
@@ -326,20 +326,15 @@ export default function MyProfilePage() {
                 className="flex justify-between items-center bg-zinc-800 p-5 rounded-3xl cursor-pointer hover:bg-zinc-700 transition-colors"
                 onClick={() => {
                   setSelectedRun(run);
-                  setHistoryOpen(false); // đóng history để mở detail rõ ràng hơn
+                  setHistoryOpen(false);
                 }}
               >
                 <div>
                   <p className="font-medium">{run.vehicles?.nickname || 'Xe không tên'}</p>
-                  <p className="text-xs text-zinc-400">
-                    {new Date(run.created_at).toLocaleString('vi-VN')}
-                  </p>
+                  <p className="text-xs text-zinc-400">{new Date(run.created_at).toLocaleString('vi-VN')}</p>
                 </div>
                 <div className="text-right">
                   <p className="text-2xl font-bold text-green-400">{run.max_speed} km/h</p>
-                  {run.zero_to_hundred && (
-                    <p className="text-xs text-zinc-400">0-100: {run.zero_to_hundred}s</p>
-                  )}
                 </div>
               </div>
             ))}
@@ -347,7 +342,7 @@ export default function MyProfilePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Chi tiết Run (full thông số) */}
+      {/* Dialog CHI TIẾT RUN - FULL THÔNG SỐ */}
       <Dialog open={!!selectedRun} onOpenChange={() => setSelectedRun(null)}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -355,25 +350,40 @@ export default function MyProfilePage() {
           </DialogHeader>
           {selectedRun && (
             <div className="space-y-6 py-4">
+              {/* Tốc độ chính */}
               <div className="text-center">
                 <p className="text-7xl font-black text-green-400">{selectedRun.max_speed}</p>
                 <p className="text-zinc-400 text-2xl">km/h</p>
               </div>
 
-              {selectedRun.zero_to_hundred && (
-                <div className="grid grid-cols-2 gap-6 text-center border-t border-zinc-700 pt-6">
-                  <div>
-                    <p className="text-zinc-400">0 - 100 km/h</p>
-                    <p className="text-5xl font-bold text-cyan-400">{selectedRun.zero_to_hundred}s</p>
+              {/* Các chỉ số tốc độ */}
+              <div className="grid grid-cols-2 gap-6 border-t border-zinc-700 pt-6">
+                {selectedRun.zero_to_sixty && (
+                  <div className="text-center">
+                    <p className="text-zinc-400 text-sm">0 - 60 km/h</p>
+                    <p className="text-4xl font-bold text-cyan-400">{selectedRun.zero_to_sixty}s</p>
                   </div>
-                  <div>
-                    <p className="text-zinc-400">Khu vực</p>
-                    <p className="font-medium text-2xl">{selectedRun.region}</p>
+                )}
+                {selectedRun.zero_to_hundred && (
+                  <div className="text-center">
+                    <p className="text-zinc-400 text-sm">0 - 100 km/h</p>
+                    <p className="text-4xl font-bold text-cyan-400">{selectedRun.zero_to_hundred}s</p>
                   </div>
-                </div>
-              )}
+                )}
+                {selectedRun.distance_to_max_speed && (
+                  <div className="text-center">
+                    <p className="text-zinc-400 text-sm">Khoảng cách đạt max</p>
+                    <p className="text-4xl font-bold text-amber-400">{selectedRun.distance_to_max_speed}m</p>
+                  </div>
+                )}
+              </div>
 
-              <div className="text-sm border-t border-zinc-700 pt-6 space-y-4">
+              {/* Thông tin phụ */}
+              <div className="space-y-4 text-sm border-t border-zinc-700 pt-6">
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Khu vực</span>
+                  <span className="font-medium">{selectedRun.region}</span>
+                </div>
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Thời gian</span>
                   <span className="font-medium">{new Date(selectedRun.created_at).toLocaleString('vi-VN')}</span>
@@ -382,6 +392,20 @@ export default function MyProfilePage() {
                   <span className="text-zinc-400">Xe</span>
                   <span className="font-medium">{selectedRun.vehicles?.nickname || 'Không có'}</span>
                 </div>
+                {selectedRun.gps_accuracy && (
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">Độ chính xác GPS</span>
+                    <span className="font-medium">{selectedRun.gps_accuracy}</span>
+                  </div>
+                )}
+                {selectedRun.is_low_accuracy !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-zinc-400">GPS thấp</span>
+                    <span className={`font-medium ${selectedRun.is_low_accuracy ? 'text-red-400' : 'text-green-400'}`}>
+                      {selectedRun.is_low_accuracy ? 'Có' : 'Không'}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           )}
