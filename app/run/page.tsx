@@ -294,7 +294,7 @@ export default function RunPage() {
       // SIÊU CẤP VŨ TRỤ: Khóa nút START 3 giây sau khi load xong
       setTimeout(() => {
         setIsPageReady(true);
-      }, 3000);
+      }, 700);
     };
     init();
   }, [refreshUserData]);
