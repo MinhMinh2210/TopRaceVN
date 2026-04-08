@@ -23,13 +23,12 @@ export default function AdminPaymentsPage() {
     setError('');
 
     try {
-      // Load pending payments với join an toàn
       const { data: payments, error: payError } = await supabase
         .from('payment_logs')
         .select(`
           *,
-          profiles:user_id (nickname),
-          packages:package_id (display_name, price, duration_type, duration_value, max_runs)
+          profiles!payment_logs_user_id_fkey (nickname),
+          packages!payment_logs_package_id_fkey (display_name, price, duration_type, duration_value, max_runs)
         `)
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
@@ -54,7 +53,7 @@ export default function AdminPaymentsPage() {
     }
   };
 
-  // ==================== REALTIME (hiển thị NGAY khi user thanh toán) ====================
+  // ==================== REALTIME (hiện ngay khi user bấm thanh toán) ====================
   useEffect(() => {
     loadData();
 
@@ -63,21 +62,17 @@ export default function AdminPaymentsPage() {
       .on(
         'postgres_changes',
         {
-          event: '*',                    // INSERT, UPDATE, DELETE
+          event: '*',
           schema: 'public',
           table: 'payment_logs',
-          filter: 'status=eq.pending',   // chỉ quan tâm pending
+          filter: 'status=eq.pending',
         },
-        (payload) => {
-          console.log('🔔 Realtime payment change:', payload.eventType);
-          loadData(); // tự động refresh ngay
+        () => {
+          loadData();
         }
       )
-      .subscribe((status) => {
-        console.log('🔌 Realtime status:', status);
-      });
+      .subscribe();
 
-    // Cleanup khi unmount
     return () => {
       supabase.removeChannel(channel);
     };
@@ -113,7 +108,6 @@ export default function AdminPaymentsPage() {
         .update({
           status: 'approved',
           approved_at: new Date().toISOString(),
-          approved_by: (await supabase.auth.getUser()).data.user?.id,
         })
         .eq('id', payment.id);
 
@@ -187,7 +181,7 @@ export default function AdminPaymentsPage() {
         </Button>
       </div>
 
-      {/* DANH SÁCH PENDING - REALTIME */}
+      {/* DANH SÁCH PENDING */}
       <Card className="mb-10">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
