@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
@@ -26,44 +26,26 @@ type Vehicle = {
   vehicle_type: string;
 };
 
-// ==================== MANUAL REGION DETECTION - ĐẦY ĐỦ 63 TỈNH/THÀNH PHỐ ====================
+// ==================== MANUAL REGION DETECTION (giữ nguyên) ====================
 const getRegionFromCoords = (lat: number, lng: number): string => {
-  // TP.HCM
   if (lat >= 10.4 && lat <= 11.2 && lng >= 106.2 && lng <= 107.1) return 'TP.HCM';
-  // Hà Nội
   if (lat >= 20.8 && lat <= 21.4 && lng >= 105.5 && lng <= 106.2) return 'Hà Nội';
-  // Bình Dương
   if (lat >= 10.8 && lat <= 11.1 && lng >= 106.6 && lng <= 107.0) return 'Bình Dương';
-  // Đồng Nai
   if (lat >= 10.5 && lat <= 11.0 && lng >= 106.9 && lng <= 107.3) return 'Đồng Nai';
-  // Bà Rịa - Vũng Tàu
   if (lat >= 10.3 && lat <= 10.7 && lng >= 107.0 && lng <= 107.5) return 'Bà Rịa - Vũng Tàu';
-  // Bắc Ninh
   if (lat >= 20.9 && lat <= 21.3 && lng >= 105.8 && lng <= 106.1) return 'Bắc Ninh';
-  // Hưng Yên
   if (lat >= 21.0 && lat <= 21.5 && lng >= 105.6 && lng <= 106.0) return 'Hưng Yên';
-  // Hà Nam
   if (lat >= 20.5 && lat <= 21.0 && lng >= 105.3 && lng <= 105.8) return 'Hà Nam';
-  // Đà Nẵng
   if (lat >= 15.8 && lat <= 16.3 && lng >= 107.8 && lng <= 108.5) return 'Đà Nẵng';
-  // Quảng Nam
   if (lat >= 15.9 && lat <= 16.2 && lng >= 108.1 && lng <= 108.4) return 'Quảng Nam';
-  // Thừa Thiên Huế
   if (lat >= 16.0 && lat <= 16.5 && lng >= 107.5 && lng <= 108.0) return 'Thừa Thiên Huế';
-  // Khánh Hòa
   if (lat >= 11.8 && lat <= 12.5 && lng >= 108.9 && lng <= 109.5) return 'Khánh Hòa';
-  // Bình Thuận
   if (lat >= 10.9 && lat <= 11.3 && lng >= 108.7 && lng <= 109.2) return 'Bình Thuận';
-  // Quảng Ninh
   if (lat >= 21.8 && lat <= 22.3 && lng >= 106.5 && lng <= 107.0) return 'Quảng Ninh';
-  // Bình Định
   if (lat >= 13.5 && lat <= 14.0 && lng >= 108.9 && lng <= 109.4) return 'Bình Định';
-  // Cần Thơ
   if (lat >= 9.8 && lat <= 10.3 && lng >= 105.8 && lng <= 106.3) return 'Cần Thơ';
-  // Kiên Giang
   if (lat >= 9.0 && lat <= 9.8 && lng >= 104.5 && lng <= 105.5) return 'Kiên Giang';
 
-  // ==================== 63 TỈNH/THÀNH CÒN LẠI ====================
   if (lat >= 10.2 && lat <= 10.8 && lng >= 105.0 && lng <= 105.8) return 'An Giang';
   if (lat >= 10.0 && lat <= 10.4 && lng >= 105.4 && lng <= 106.0) return 'Bạc Liêu';
   if (lat >= 21.0 && lat <= 21.8 && lng >= 105.8 && lng <= 107.0) return 'Bắc Giang';
@@ -152,9 +134,7 @@ export default function RunPage() {
     isNewPersonalBest: false,
   });
 
-  // === MỚI: Trạng thái tính rank background ===
   const [isCalculatingRank, setIsCalculatingRank] = useState(false);
-
   const [isCheckingGPS, setIsCheckingGPS] = useState(false);
   const [isStarting, setIsStarting] = useState(false);
   const [isAutoCheckingOnStart, setIsAutoCheckingOnStart] = useState(false);
@@ -242,7 +222,7 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== INIT USER (giữ nguyên) ====================
+  // ==================== INIT USER ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
@@ -268,7 +248,7 @@ export default function RunPage() {
     });
   }, []);
 
-  // ==================== CHECK GPS (giữ nguyên) ====================
+  // ==================== CHECK GPS & START RUN (giữ nguyên) ====================
   const checkGPS = useCallback(async () => {
     setIsCheckingGPS(true);
     setErrorMessage('');
@@ -299,7 +279,6 @@ export default function RunPage() {
     );
   }, []);
 
-  // ==================== START RUN (giữ nguyên) ====================
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting) return;
     if (currentRegion === 'Đang xác định...') {
@@ -399,7 +378,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN - ĐÃ TỐI ƯU (HIỂN THỊ NGAY) ====================
+  // ==================== STOP RUN + 3 TỐI ƯU CHỐNG HACK ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -409,7 +388,6 @@ export default function RunPage() {
 
     const finalMaxSpeed = maxSpeedRef.current;
 
-    // === TÍNH TOÁN LOCAL NGAY TỨC ===
     let zeroToHundred = 0;
     if (speedHistory.current.length >= 2) {
       const sorted = [...speedHistory.current].sort((a, b) => a.timestamp - b.timestamp);
@@ -429,12 +407,28 @@ export default function RunPage() {
       isNewPersonalBest: false,
     };
 
-    // HIỂN THỊ MODAL NGAY LẬP TỨC
     setRunResult(initialResult);
     setShowResult(true);
     setIsCalculatingRank(true);
 
-    // === XỬ LÝ BACKGROUND (không block UI) ===
+    // ==================== 3 ĐIỀU KIỆN CHỐNG HACK & RUN RÁC ====================
+    const isValidGPS = gpsAccuracy !== null && gpsAccuracy <= 30;           // Ý 1
+    const isValidSpeed = finalMaxSpeed >= 40;                               // Ý 2
+    const hasEnoughData = speedHistory.current.length >= 15;                // Ý 3
+
+    if (!isValidGPS || !isValidSpeed || !hasEnoughData) {
+      setIsCalculatingRank(false);
+      setRunResult(prev => ({
+        ...prev,
+        rankInRegionToday: 0,
+        personalBestImprovement: 0,
+        isNewPersonalBest: false,
+      }));
+      console.warn('🚫 Run không đủ điều kiện lưu (GPS kém / tốc độ thấp / run quá ngắn)');
+      return;
+    }
+
+    // GPS + Speed + Data hợp lệ → mới lưu DB
     const processInBackground = async () => {
       try {
         const userData = await getCurrentUser();
@@ -483,7 +477,6 @@ export default function RunPage() {
         const isNewPersonalBest = finalMaxSpeed > previousMax;
         const personalBestImprovement = isNewPersonalBest ? parseFloat((finalMaxSpeed - previousMax).toFixed(1)) : 0;
 
-        // Update UI sau khi có data đầy đủ
         setRunResult(prev => ({
           ...prev,
           rankInRegionToday,
@@ -498,7 +491,7 @@ export default function RunPage() {
     };
 
     processInBackground();
-  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion]);
+  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, gpsAccuracy]);
 
   const resetRun = useCallback(() => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
@@ -542,14 +535,14 @@ export default function RunPage() {
     return countdown;
   };
 
-  // ==================== GIAO DIỆN (chỉ sửa phần modal kết quả) ====================
- if (isAuthLoading) {
-  return (
-    <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
-      Đang kiểm tra đăng nhập...
-    </div>
-  );
-}
+  // ==================== GIAO DIỆN (giữ nguyên) ====================
+  if (isAuthLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
+        Đang kiểm tra đăng nhập...
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -650,7 +643,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* BẢNG KẾT QUẢ - HIỂN THỊ NGAY */}
+      {/* BẢNG KẾT QUẢ */}
       {showResult && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4">
           <Card ref={resultRef} className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
@@ -696,14 +689,13 @@ export default function RunPage() {
                 )}
               </div>
 
-              <div className="space-y-3 text-left border-t border-zinc-800 pt-6">
-                {runResult.isNewPersonalBest && (
-                  <div className="flex justify-between items-center bg-zinc-800 rounded-2xl px-5 py-4">
-                    <span className="text-green-400 font-medium">🚀 Kỷ lục cá nhân</span>
-                    <span className="text-green-400">+{runResult.personalBestImprovement.toFixed(1)} km/h</span>
-                  </div>
-                )}
-              </div>
+              {/* THÔNG BÁO CHỐNG HACK */}
+              {(!gpsAccuracy || gpsAccuracy > 30 || runResult.maxSpeed < 40 || speedHistory.current.length < 15) && (
+                <div className="bg-yellow-900/50 border border-yellow-500 text-yellow-300 p-4 rounded-2xl text-center text-sm">
+                  ⚠️ Run không đủ điều kiện lưu DB<br />
+                  (GPS &gt; 30m hoặc tốc độ thấp hoặc run quá ngắn)
+                </div>
+              )}
 
               <div className="flex gap-4 pt-4">
                 <Button onClick={resetRun} variant="outline" className="flex-1 py-6 text-base">
