@@ -38,7 +38,7 @@ type Package = {
   max_runs: number;
 };
 
-// ==================== MANUAL REGION DETECTION (giữ nguyên) ====================
+// ==================== MANUAL REGION DETECTION ====================
 const getRegionFromCoords = (lat: number, lng: number): string => {
   if (lat >= 10.4 && lat <= 11.2 && lng >= 106.2 && lng <= 107.1) return 'TP.HCM';
   if (lat >= 20.8 && lat <= 21.4 && lng >= 105.5 && lng <= 106.2) return 'Hà Nội';
@@ -238,6 +238,34 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
+  // ==================== NEW: REFRESH USER DATA (fix stale free run) ====================
+  const refreshUserData = useCallback(async () => {
+    if (!user?.id) return;
+    try {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('free_runs_used, nickname')
+        .eq('id', user.id)
+        .single();
+
+      const { data: sub } = await supabase
+        .from('user_subscriptions')
+        .select('remaining_runs')
+        .eq('user_id', user.id)
+        .eq('status', 'active')
+        .gte('end_date', new Date().toISOString())
+        .maybeSingle();
+
+      if (profile) {
+        setFreeRunsUsed(profile.free_runs_used || 0);
+        setNickname(profile.nickname || 'user');
+      }
+      setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
+    } catch (err) {
+      console.error('❌ Refresh user data failed', err);
+    }
+  }, [user]);
+
   // ==================== INIT + LẤY NICKNAME THẬT ====================
   useEffect(() => {
     const init = async () => {
@@ -249,23 +277,7 @@ export default function RunPage() {
       setVehicles(vData ?? []);
       if (vData?.length) setSelectedVehicle(vData[0]);
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('free_runs_used, nickname')
-        .eq('id', u.id)
-        .single();
-
-      setFreeRunsUsed(profile?.free_runs_used || 0);
-      setNickname(profile?.nickname || 'user');
-
-      const { data: sub } = await supabase
-        .from('user_subscriptions')
-        .select('remaining_runs')
-        .eq('user_id', u.id)
-        .eq('status', 'active')
-        .gte('end_date', new Date().toISOString())
-        .maybeSingle();
-      setHasActiveSub(!!sub && sub.remaining_runs > 0);
+      await refreshUserData();
 
       const { data: pkgData } = await supabase.from('packages').select('*').eq('is_active', true).order('price');
       setPackages(pkgData || []);
@@ -273,7 +285,7 @@ export default function RunPage() {
       setIsAuthLoading(false);
     };
     init();
-  }, [selectedVehicle]);
+  }, [refreshUserData]);
 
   const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/run' } });
@@ -413,7 +425,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN (giữ nguyên) ====================
+  // ==================== FIXED STOP RUN (không trừ lượt khi 0km/h hoặc invalid) ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -450,15 +462,20 @@ export default function RunPage() {
     const isValidSpeed = finalMaxSpeed >= 40;
     const hasEnoughData = speedHistory.current.length >= 15;
 
+    // ==================== INVALID RUN → KHÔNG TRỪ LƯỢT ====================
     if (!isValidGPS || !isValidSpeed || !hasEnoughData) {
+      console.warn('🚫 Run không đủ điều kiện lưu', { isValidGPS, isValidSpeed, hasEnoughData, maxSpeed: finalMaxSpeed, accuracy: gpsAccuracy });
+      setRunResult(prev => ({ ...prev, rankInRegionToday: -1 }));
       setIsCalculatingRank(false);
-      console.warn('🚫 Run không đủ điều kiện lưu');
+      await refreshUserData();
       return;
     }
 
+    // ==================== VALID RUN → LƯU VÀ TRỪ LƯỢT ====================
     const currentUser = await getCurrentUser();
     if (!currentUser || !selectedVehicle) {
       setIsCalculatingRank(false);
+      await refreshUserData();
       return;
     }
 
@@ -481,6 +498,18 @@ export default function RunPage() {
       ai_verified: false,
     });
 
+    // Explicit update free_runs_used (chỉ khi chưa có sub)
+    if (!hasActiveSub) {
+      const newUsed = freeRunsUsed + 1;
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ free_runs_used: newUsed })
+        .eq('id', currentUser.id);
+
+      if (!updateError) setFreeRunsUsed(newUsed);
+    }
+
+    // Background rank
     const processInBackground = async () => {
       try {
         const today = new Date().toISOString().split('T')[0];
@@ -521,8 +550,10 @@ export default function RunPage() {
     };
 
     processInBackground();
-  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, gpsAccuracy]);
+    await refreshUserData();
+  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, gpsAccuracy, hasActiveSub, freeRunsUsed, refreshUserData]);
 
+  // ==================== RESET RUN ====================
   const resetRun = useCallback(() => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -541,7 +572,8 @@ export default function RunPage() {
     setIsStarting(false);
     setIsAutoCheckingOnStart(false);
     setIsCalculatingRank(false);
-  }, [watchId, stopDeviceMotion]);
+    refreshUserData(); // sync lại free run sau reset
+  }, [watchId, stopDeviceMotion, refreshUserData]);
 
   const downloadResultAsImage = useCallback(async () => {
     const card = resultRef.current;
@@ -754,7 +786,7 @@ export default function RunPage() {
               </div>
 
               <div className="text-center">
-                {runResult.maxSpeed < 40 ? (
+                {runResult.maxSpeed < 40 || runResult.rankInRegionToday === -1 ? (
                   <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG</p>
                 ) : (
                   <>
@@ -771,7 +803,7 @@ export default function RunPage() {
                   <RotateCcw className="mr-2 h-5 w-5" />
                   Again
                 </Button>
-                {runResult.maxSpeed >= 40 && (
+                {runResult.maxSpeed >= 40 && runResult.rankInRegionToday !== -1 && (
                   <Button onClick={() => window.location.href = '/leaderboard'} className="flex-1 py-6 text-base">
                     Rank
                   </Button>
