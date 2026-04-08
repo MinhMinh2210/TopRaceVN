@@ -1,7 +1,8 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
+
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -12,18 +13,21 @@ export default function AdminPaymentsPage() {
   const [pendingPayments, setPendingPayments] = useState<any[]>([]);
   const [users, setUsers] = useState<any[]>([]);
   const [packages, setPackages] = useState<any[]>([]);
+
   const [selectedUserId, setSelectedUserId] = useState('');
   const [selectedPackageId, setSelectedPackageId] = useState('');
-  const [loading, setLoading] = useState(false);
+
+  const [loadingPayments, setLoadingPayments] = useState(false);
+  const [loadingUsers, setLoadingUsers] = useState(false);
+  const [loadingPackages, setLoadingPackages] = useState(false);
   const [error, setError] = useState('');
 
-  // ==================== LOAD DATA ====================
-  const loadData = async () => {
-    setLoading(true);
+  // ==================== LAZY LOAD FUNCTIONS ====================
+  const loadPendingPayments = useCallback(async () => {
+    setLoadingPayments(true);
     setError('');
-
     try {
-      const { data: payments, error: payError } = await supabase
+      const { data, error: payError } = await supabase
         .from('payment_logs')
         .select(`
           *,
@@ -34,58 +38,40 @@ export default function AdminPaymentsPage() {
         .order('created_at', { ascending: false });
 
       if (payError) throw payError;
-
-      setPendingPayments(payments || []);
-
-      const [uRes, pRes] = await Promise.all([
-        supabase.from('profiles').select('id, nickname').order('nickname'),
-        supabase.from('packages').select('*').eq('is_active', true).order('price'),
-      ]);
-
-      setUsers(uRes.data || []);
-      setPackages(pRes.data || []);
+      setPendingPayments(data || []);
     } catch (err: any) {
+      setError('Lỗi tải thanh toán: ' + err.message);
       console.error(err);
-      setError(err.message || 'Lỗi khi tải dữ liệu');
     } finally {
-      setLoading(false);
+      setLoadingPayments(false);
     }
-  };
-
-  // ==================== REALTIME (đã fix TS error) ====================
-  useEffect(() => {
-    loadData();
-
-    const channel = supabase
-      .channel('payment_logs_realtime')
-      .on(
-        'postgres_changes',
-        {
-          event: '*',
-          schema: 'public',
-          table: 'payment_logs',
-          filter: 'status=eq.pending',
-        },
-        () => {
-          // Fire-and-forget (không await)
-          loadData();
-        }
-      )
-      .subscribe((status) => {
-        console.log('🔌 Realtime subscription status:', status);
-      });
-
-    // Cleanup function (bắt buộc để fix TS error)
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, []);
 
-  // ==================== DUYỆT TỪ PENDING ====================
+  const loadUsers = useCallback(async () => {
+    setLoadingUsers(true);
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, nickname')
+      .order('nickname');
+    setUsers(data || []);
+    setLoadingUsers(false);
+  }, []);
+
+  const loadPackages = useCallback(async () => {
+    setLoadingPackages(true);
+    const { data } = await supabase
+      .from('packages')
+      .select('*')
+      .eq('is_active', true)
+      .order('price');
+    setPackages(data || []);
+    setLoadingPackages(false);
+  }, []);
+
+  // ==================== DUYỆT PENDING ====================
   const approvePending = async (payment: any) => {
     if (!confirm(`Xác nhận cấp gói cho ${payment.profiles?.nickname || 'User'}?`)) return;
 
-    setLoading(true);
     try {
       const pkg = payment.packages;
       const endDate = new Date();
@@ -93,7 +79,7 @@ export default function AdminPaymentsPage() {
       else if (pkg.duration_type === 'hours') endDate.setHours(endDate.getHours() + pkg.duration_value);
       else endDate.setDate(endDate.getDate() + pkg.duration_value);
 
-      const { error: subError } = await supabase.from('user_subscriptions').insert({
+      await supabase.from('user_subscriptions').insert({
         user_id: payment.user_id,
         package_id: payment.package_id,
         start_date: new Date().toISOString(),
@@ -101,50 +87,44 @@ export default function AdminPaymentsPage() {
         remaining_runs: pkg.max_runs,
         status: 'active',
       });
-      if (subError) throw subError;
 
-      const { error: updateError } = await supabase
+      await supabase
         .from('payment_logs')
         .update({ status: 'approved', approved_at: new Date().toISOString() })
         .eq('id', payment.id);
-      if (updateError) throw updateError;
 
       alert(`✅ Đã cấp gói ${pkg.display_name} cho ${payment.profiles?.nickname}`);
-      loadData();
+      // KHÔNG tự load lại → user phải nhấn nút "Tải danh sách thanh toán"
     } catch (err: any) {
-      setError(err.message);
-      console.error(err);
-    } finally {
-      setLoading(false);
+      setError(err.message || 'Lỗi khi cấp gói');
     }
   };
 
   const deletePending = async (id: string) => {
     if (!confirm('Xóa yêu cầu thanh toán này?')) return;
     await supabase.from('payment_logs').delete().eq('id', id);
-    loadData();
+    // KHÔNG tự load lại
   };
 
   // ==================== DUYỆT THỦ CÔNG ====================
   const handleApproveManual = async () => {
     if (!selectedUserId || !selectedPackageId) return;
-    setLoading(true);
-    setError('');
 
     try {
-      const { data: pkg, error: pkgError } = await supabase
+      const { data: pkg } = await supabase
         .from('packages')
         .select('*')
         .eq('id', selectedPackageId)
         .single();
-      if (pkgError || !pkg) throw new Error('Không tìm thấy gói');
+
+      if (!pkg) throw new Error('Không tìm thấy gói');
 
       const endDate = new Date();
       if (pkg.duration_type === 'minutes') endDate.setMinutes(endDate.getMinutes() + pkg.duration_value);
       else if (pkg.duration_type === 'hours') endDate.setHours(endDate.getHours() + pkg.duration_value);
       else endDate.setDate(endDate.getDate() + pkg.duration_value);
 
-      const { error: subError } = await supabase.from('user_subscriptions').insert({
+      await supabase.from('user_subscriptions').insert({
         user_id: selectedUserId,
         package_id: pkg.id,
         start_date: new Date().toISOString(),
@@ -152,16 +132,12 @@ export default function AdminPaymentsPage() {
         remaining_runs: pkg.max_runs,
         status: 'active',
       });
-      if (subError) throw subError;
 
       alert(`✅ Đã cấp gói ${pkg.display_name} thủ công!`);
       setSelectedUserId('');
       setSelectedPackageId('');
-      loadData();
     } catch (err: any) {
       setError(err.message || 'Lỗi khi cấp gói');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -169,16 +145,18 @@ export default function AdminPaymentsPage() {
     <div className="p-6 max-w-6xl mx-auto">
       <div className="flex justify-between items-center mb-8">
         <h1 className="text-4xl font-black">Duyệt Thanh Toán</h1>
-        <Button onClick={loadData} disabled={loading} variant="outline" className="gap-2">
-          <RefreshCw className="w-4 h-4" />
-          Làm mới
-        </Button>
       </div>
 
       {/* DANH SÁCH PENDING */}
       <Card className="mb-10">
         <CardHeader>
-          <CardTitle>Yêu cầu thanh toán đang chờ ({pendingPayments.length})</CardTitle>
+          <div className="flex justify-between items-center">
+            <CardTitle>Yêu cầu thanh toán đang chờ ({pendingPayments.length})</CardTitle>
+            <Button onClick={loadPendingPayments} disabled={loadingPayments} variant="outline" className="gap-2">
+              <RefreshCw className="w-4 h-4" />
+              {loadingPayments ? 'Đang tải...' : 'Tải danh sách thanh toán'}
+            </Button>
+          </div>
         </CardHeader>
         <CardContent>
           {pendingPayments.length === 0 ? (
@@ -230,6 +208,11 @@ export default function AdminPaymentsPage() {
           <CardTitle>Duyệt Thanh Toán Thủ Công</CardTitle>
         </CardHeader>
         <CardContent className="space-y-6">
+          <Button onClick={loadUsers} disabled={loadingUsers} variant="outline" className="w-full gap-2">
+            <RefreshCw className="w-4 h-4" />
+            {loadingUsers ? 'Đang tải...' : 'Tải danh sách Users'}
+          </Button>
+
           <div>
             <Label>Chọn User</Label>
             <Select value={selectedUserId} onValueChange={setSelectedUserId}>
@@ -245,6 +228,11 @@ export default function AdminPaymentsPage() {
               </SelectContent>
             </Select>
           </div>
+
+          <Button onClick={loadPackages} disabled={loadingPackages} variant="outline" className="w-full gap-2">
+            <RefreshCw className="w-4 h-4" />
+            {loadingPackages ? 'Đang tải...' : 'Tải danh sách Packages'}
+          </Button>
 
           <div>
             <Label>Chọn gói cước</Label>
@@ -264,10 +252,10 @@ export default function AdminPaymentsPage() {
 
           <Button
             onClick={handleApproveManual}
-            disabled={loading || !selectedUserId || !selectedPackageId}
+            disabled={!selectedUserId || !selectedPackageId}
             className="w-full py-6 text-lg"
           >
-            {loading ? 'Đang cấp gói...' : 'Duyệt & Cấp Gói Ngay'}
+            Duyệt & Cấp Gói Ngay
           </Button>
 
           {error && (

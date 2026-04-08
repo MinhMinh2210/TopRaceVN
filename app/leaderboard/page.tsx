@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
@@ -74,9 +74,8 @@ export default function LeaderboardPage() {
           avatar_url
         )
       `)
-      .limit(150); // Tăng lên 150 để đủ dữ liệu cho mọi filter
+      .limit(150);
 
-    // Áp dụng filter ngay từ server
     if (regionFilter !== 'all') {
       query = query.eq('region', regionFilter);
     }
@@ -85,7 +84,6 @@ export default function LeaderboardPage() {
       query = query.eq('vehicles.vehicle_type', typeFilter);
     }
 
-    // Order theo tab
     if (activeTab === 'speed') {
       query = query
         .order('max_speed', { ascending: false })
@@ -107,7 +105,6 @@ export default function LeaderboardPage() {
       return;
     }
 
-    // Best record mỗi user (client-side để chính xác)
     const bestPerUser = new Map();
 
     (result || []).forEach((item: any) => {
@@ -129,7 +126,10 @@ export default function LeaderboardPage() {
 
     const bestRecords = Array.from(bestPerUser.values());
 
-    const formatted = bestRecords.map((item: any, index: number) => ({
+    // ==================== GIỚI HẠN CHỈ 30 NGƯỜI ====================
+    const top30 = bestRecords.slice(0, 30);
+
+    const formatted = top30.map((item: any, index: number) => ({
       rank: index + 1,
       user_id: item.user_id,
       nickname: item.vehicles?.nickname || 'Không có tên',
@@ -144,7 +144,6 @@ export default function LeaderboardPage() {
     setLoading(false);
   }, [user, activeTab, regionFilter, typeFilter]);
 
-  // Fetch lại mỗi khi filter/tab thay đổi
   useEffect(() => {
     if (user) {
       loadData();
@@ -197,7 +196,6 @@ export default function LeaderboardPage() {
   return (
     <div className="min-h-screen bg-zinc-950 pb-20 px-4">
       <div className="max-w-2xl mx-auto">
-        {/* Header giống TripRank */}
         <div className="text-center pt-8 pb-6">
           <div className="inline-flex items-center gap-2 text-4xl font-black tracking-tighter text-white">
             <span className="text-cyan-400">Trip</span>
