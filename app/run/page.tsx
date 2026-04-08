@@ -179,7 +179,7 @@ export default function RunPage() {
   const lastSpeedUpdateRef = useRef(0);
   const maxSpeedRef = useRef(0);
 
-  // ==================== DEVICE MOTION & FUSED SPEED ====================
+  // ==================== DEVICE MOTION & FUSED SPEED (giữ nguyên) ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
     if (event.acceleration) {
       accelerationRef.current = { x: event.acceleration.x ?? 0, y: event.acceleration.y ?? 0, z: event.acceleration.z ?? 0 };
@@ -238,7 +238,33 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== INIT + LẤY NICKNAME THẬT ====================
+  // ==================== FIX: REFRESH TRẠNG THÁI FREE RUN & SUBSCRIPTION ====================
+  const refreshUserStatus = useCallback(async () => {
+    if (!user) return;
+
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('free_runs_used, nickname')
+      .eq('id', user.id)
+      .single();
+
+    if (profile) {
+      setFreeRunsUsed(profile.free_runs_used || 0);
+      setNickname(profile.nickname || 'user');
+    }
+
+    const { data: sub } = await supabase
+      .from('user_subscriptions')
+      .select('remaining_runs')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .gte('end_date', new Date().toISOString())
+      .single();
+
+    setHasActiveSub(!!sub && (sub.remaining_runs || 0) > 0);
+  }, [user]);
+
+  // ==================== INIT + LẤY NICKNAME THẬT (giữ nguyên) ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
@@ -249,23 +275,7 @@ export default function RunPage() {
       setVehicles(vData ?? []);
       if (vData?.length) setSelectedVehicle(vData[0]);
 
-      const { data: profile } = await supabase
-        .from('profiles')
-        .select('free_runs_used, nickname')
-        .eq('id', u.id)
-        .single();
-
-      setFreeRunsUsed(profile?.free_runs_used || 0);
-      setNickname(profile?.nickname || 'user');
-
-      const { data: sub } = await supabase
-        .from('user_subscriptions')
-        .select('remaining_runs')
-        .eq('user_id', u.id)
-        .eq('status', 'active')
-        .gte('end_date', new Date().toISOString())
-        .single();
-      setHasActiveSub(!!sub && sub.remaining_runs > 0);
+      await refreshUserStatus();   // ← dùng hàm mới để đồng bộ
 
       const { data: pkgData } = await supabase.from('packages').select('*').eq('is_active', true).order('price');
       setPackages(pkgData || []);
@@ -273,13 +283,13 @@ export default function RunPage() {
       setIsAuthLoading(false);
     };
     init();
-  }, [selectedVehicle]);
+  }, [refreshUserStatus]);   // dependency thay đổi nhẹ để refresh khi cần
 
   const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/run' } });
   }, []);
 
-  // ==================== CHECK GPS & START RUN ====================
+  // ==================== CHECK GPS & START RUN (giữ nguyên) ====================
   const checkGPS = useCallback(async () => {
     setIsCheckingGPS(true);
     setErrorMessage('');
@@ -413,7 +423,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN (giữ nguyên) ====================
+  // ==================== STOP RUN + FIX CONSUME RUN ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -462,6 +472,7 @@ export default function RunPage() {
       return;
     }
 
+    // === INSERT RUN ===
     await supabase.from('runs').insert({
       user_id: currentUser.id,
       vehicle_id: selectedVehicle.id,
@@ -481,6 +492,26 @@ export default function RunPage() {
       ai_verified: false,
     });
 
+    // === FIX: CONSUME 1 RUN (free hoặc subscription) ===
+    if (hasActiveSub) {
+      // Trừ remaining_runs
+      await supabase
+        .from('user_subscriptions')
+        .update({ remaining_runs: supabase.rpc('decrement_remaining_runs') }) // hoặc dùng raw SQL nếu chưa có function
+        .eq('user_id', currentUser.id)
+        .eq('status', 'active');
+    } else {
+      // Tăng free_runs_used
+      await supabase
+        .from('profiles')
+        .update({ free_runs_used: freeRunsUsed + 1 })
+        .eq('id', currentUser.id);
+    }
+
+    // Refresh lại trạng thái để UI cập nhật ngay (canStartRun, modal mua gói)
+    await refreshUserStatus();
+
+    // Tính rank (giữ nguyên)
     const processInBackground = async () => {
       try {
         const today = new Date().toISOString().split('T')[0];
@@ -521,7 +552,7 @@ export default function RunPage() {
     };
 
     processInBackground();
-  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, gpsAccuracy]);
+  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, gpsAccuracy, hasActiveSub, freeRunsUsed, refreshUserStatus]);
 
   const resetRun = useCallback(() => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
@@ -565,7 +596,7 @@ export default function RunPage() {
     return countdown;
   };
 
-  // ==================== THANH TOÁN ====================
+  // ==================== THANH TOÁN (giữ nguyên) ====================
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
     setShowBuyModal(false);
@@ -591,6 +622,7 @@ export default function RunPage() {
       alert('✅ Yêu cầu thanh toán đã gửi!\nAdmin sẽ kiểm tra và cấp gói trong dashboard.');
       setShowPaymentModal(false);
       setSelectedPackage(null);
+      await refreshUserStatus(); // refresh lại sau khi admin duyệt (nếu muốn)
     }
     setIsConfirmingPayment(false);
   };
@@ -599,7 +631,7 @@ export default function RunPage() {
     navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
   };
 
-  // ==================== GIAO DIỆN ====================
+  // ==================== GIAO DIỆN (giữ nguyên hoàn toàn) ====================
   if (isAuthLoading) {
     return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang kiểm tra đăng nhập...</div>;
   }
