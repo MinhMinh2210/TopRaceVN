@@ -264,7 +264,7 @@ export default function RunPage() {
         .eq('user_id', u.id)
         .eq('status', 'active')
         .gte('end_date', new Date().toISOString())
-        .single();
+        .maybeSingle();
       setHasActiveSub(!!sub && sub.remaining_runs > 0);
 
       const { data: pkgData } = await supabase.from('packages').select('*').eq('is_active', true).order('price');
