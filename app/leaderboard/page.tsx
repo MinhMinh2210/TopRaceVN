@@ -27,7 +27,7 @@ export default function LeaderboardPage() {
   const [activeTab, setActiveTab] = useState<'speed' | 'acceleration'>('speed');
   const [regionFilter, setRegionFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
-  const [rawData, setRawData] = useState<any[]>([]); // Dữ liệu thô fetch 1 lần
+  const [data, setData] = useState<LeaderboardItem[]>([]);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [loading, setLoading] = useState(false);
 
@@ -52,12 +52,12 @@ export default function LeaderboardPage() {
     });
   }, []);
 
-  // ==================== FETCH DATA 1 LẦN DUY NHẤT (EXTREME OPTIMIZATION) ====================
-  const fetchLeaderboardData = useCallback(async () => {
+  // ==================== LOAD DATA (fetch lại khi filter thay đổi) ====================
+  const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
 
-    const { data: result, error } = await supabase
+    let query = supabase
       .from('runs')
       .select(`
         id,
@@ -74,42 +74,43 @@ export default function LeaderboardPage() {
           avatar_url
         )
       `)
-      .limit(100) // Fetch nhiều hơn để client-side filter an toàn
-      .order('created_at', { ascending: false });
+      .limit(150); // Tăng lên 150 để đủ dữ liệu cho mọi filter
+
+    // Áp dụng filter ngay từ server
+    if (regionFilter !== 'all') {
+      query = query.eq('region', regionFilter);
+    }
+
+    if (typeFilter !== 'all') {
+      query = query.eq('vehicles.vehicle_type', typeFilter);
+    }
+
+    // Order theo tab
+    if (activeTab === 'speed') {
+      query = query
+        .order('max_speed', { ascending: false })
+        .not('max_speed', 'is', null)
+        .gt('max_speed', 0);
+    } else {
+      query = query
+        .order('zero_to_hundred', { ascending: true })
+        .not('zero_to_hundred', 'is', null)
+        .gt('zero_to_hundred', 0);
+    }
+
+    const { data: result, error } = await query;
 
     if (error) {
       console.error('Lỗi load leaderboard:', error);
-      setRawData([]);
-    } else {
-      setRawData(result || []);
-    }
-    setLoading(false);
-  }, [user]);
-
-  useEffect(() => {
-    if (user) {
-      fetchLeaderboardData();
-    }
-  }, [fetchLeaderboardData]);
-
-  // ==================== CLIENT-SIDE FILTER + BEST PER USER (35 records) ====================
-  const leaderboardData = useMemo((): LeaderboardItem[] => {
-    let filtered = rawData;
-
-    // Filter region
-    if (regionFilter !== 'all') {
-      filtered = filtered.filter((item: any) => item.region === regionFilter);
+      setData([]);
+      setLoading(false);
+      return;
     }
 
-    // Filter vehicle type
-    if (typeFilter !== 'all') {
-      filtered = filtered.filter((item: any) => item.vehicles?.vehicle_type === typeFilter);
-    }
-
-    // Best record per user
+    // Best record mỗi user (client-side để chính xác)
     const bestPerUser = new Map();
 
-    filtered.forEach((item: any) => {
+    (result || []).forEach((item: any) => {
       const userId = item.user_id;
       if (!userId) return;
 
@@ -128,19 +129,7 @@ export default function LeaderboardPage() {
 
     const bestRecords = Array.from(bestPerUser.values());
 
-    // Sort theo tab hiện tại
-    bestRecords.sort((a, b) => {
-      if (activeTab === 'speed') {
-        return (b.max_speed ?? 0) - (a.max_speed ?? 0);
-      } else {
-        return (a.zero_to_hundred ?? 999) - (b.zero_to_hundred ?? 999);
-      }
-    });
-
-    // Lấy top 35 (tăng thêm 5 như yêu cầu)
-    const top35 = bestRecords.slice(0, 35);
-
-    return top35.map((item: any, index: number) => ({
+    const formatted = bestRecords.map((item: any, index: number) => ({
       rank: index + 1,
       user_id: item.user_id,
       nickname: item.vehicles?.nickname || 'Không có tên',
@@ -150,7 +139,17 @@ export default function LeaderboardPage() {
       region: item.region || 'Không xác định',
       created_at: item.created_at,
     }));
-  }, [rawData, activeTab, regionFilter, typeFilter]);
+
+    setData(formatted);
+    setLoading(false);
+  }, [user, activeTab, regionFilter, typeFilter]);
+
+  // Fetch lại mỗi khi filter/tab thay đổi
+  useEffect(() => {
+    if (user) {
+      loadData();
+    }
+  }, [loadData]);
 
   // ==================== LOADING AUTH ====================
   if (isAuthLoading) {
@@ -194,7 +193,7 @@ export default function LeaderboardPage() {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP - BẢNG XẾP HẠNG ====================
+  // ==================== ĐÃ ĐĂNG NHẬP ====================
   return (
     <div className="min-h-screen bg-zinc-950 pb-20 px-4">
       <div className="max-w-2xl mx-auto">
@@ -305,11 +304,11 @@ export default function LeaderboardPage() {
           </div>
 
           <TabsContent value="speed" className="mt-2">
-            <LeaderboardTable data={leaderboardData} type="speed" loading={loading} user={user} />
+            <LeaderboardTable data={data} type="speed" loading={loading} user={user} />
           </TabsContent>
 
           <TabsContent value="acceleration" className="mt-2">
-            <LeaderboardTable data={leaderboardData} type="acceleration" loading={loading} user={user} />
+            <LeaderboardTable data={data} type="acceleration" loading={loading} user={user} />
           </TabsContent>
         </Tabs>
       </div>
