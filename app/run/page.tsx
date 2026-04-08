@@ -132,6 +132,9 @@ export default function RunPage() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
 
+  // LOCK 3 GIÂY ĐẦU SAU LOAD (SIÊU CẤP VŨ TRỤ)
+  const [isPageReady, setIsPageReady] = useState(false);
+
   const [freeRunsUsed, setFreeRunsUsed] = useState(0);
   const [hasActiveSub, setHasActiveSub] = useState(false);
   const [packages, setPackages] = useState<Package[]>([]);
@@ -169,7 +172,7 @@ export default function RunPage() {
   const [isStarting, setIsStarting] = useState(false);
   const [isAutoCheckingOnStart, setIsAutoCheckingOnStart] = useState(false);
 
-  // LOCK chống spam nút START
+  // LOCK chống spam (kết hợp 3 giây đầu)
   const isStartingRunRef = useRef(false);
 
   const resultRef = useRef<HTMLDivElement>(null);
@@ -269,7 +272,7 @@ export default function RunPage() {
     setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
   }, [user]);
 
-  // ==================== INIT ====================
+  // ==================== INIT + 3 GIÂY LOCK ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
@@ -287,6 +290,11 @@ export default function RunPage() {
       await refreshUserData();
       setIsDataLoaded(true);
       setIsAuthLoading(false);
+
+      // SIÊU CẤP VŨ TRỤ: Khóa nút START 3 giây sau khi load xong
+      setTimeout(() => {
+        setIsPageReady(true);
+      }, 3000);
     };
     init();
   }, [refreshUserData]);
@@ -325,11 +333,11 @@ export default function RunPage() {
     );
   }, []);
 
-  // ==================== START RUN (ANTI-SPAM) ====================
+  // ==================== START RUN (ANTI-SPAM + 3 GIÂY LOCK) ====================
   const startRun = useCallback(() => {
-    if (!selectedVehicle || isStarting || isStartingRunRef.current) return;
+    if (!selectedVehicle || isStarting || isStartingRunRef.current || !isPageReady) return;
 
-    isStartingRunRef.current = true; // LOCK ngay lập tức
+    isStartingRunRef.current = true;
 
     if (!canStartRun) {
       loadPackages();
@@ -350,7 +358,7 @@ export default function RunPage() {
 
     startCountdown();
     isStartingRunRef.current = false;
-  }, [selectedVehicle, isStarting, currentRegion, canStartRun, checkGPS, loadPackages]);
+  }, [selectedVehicle, isStarting, currentRegion, canStartRun, checkGPS, loadPackages, isPageReady]);
 
   const startCountdown = useCallback(() => {
     setIsStarting(true);
@@ -703,7 +711,11 @@ export default function RunPage() {
         </div>
       </div>
 
-      <Button onClick={checkGPS} disabled={isCheckingGPS} className={`w-full py-6 text-lg font-semibold rounded-2xl transition-all ${isCheckingGPS ? 'bg-zinc-700 text-zinc-400' : 'bg-white hover:bg-zinc-100 text-zinc-900'}`}>
+      <Button 
+        onClick={checkGPS} 
+        disabled={isCheckingGPS} 
+        className={`w-full py-6 text-lg font-semibold rounded-2xl transition-all ${isCheckingGPS ? 'bg-zinc-700 text-zinc-400' : 'bg-white hover:bg-zinc-100 text-zinc-900'}`}
+      >
         {isCheckingGPS ? <>Đang kiểm tra GPS...</> : 'Kiểm tra GPS & Khu vực'}
       </Button>
 
@@ -718,9 +730,9 @@ export default function RunPage() {
         {!isRunning && !showResult ? (
           <Button
             onClick={startRun}
-            disabled={isStarting || !canStartRun}
+            disabled={isStarting || !canStartRun || !isPageReady}
             className={`w-[90%] py-12 text-4xl rounded-3xl transition-all ${
-              !canStartRun
+              !canStartRun || !isPageReady
                 ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed'
                 : hasActiveSub
                 ? 'bg-green-600 hover:bg-green-700'
