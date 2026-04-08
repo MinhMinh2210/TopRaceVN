@@ -11,12 +11,23 @@ import { Button } from '@/components/ui/button';
 import { Trophy, Medal } from 'lucide-react';
 import DonateModal from '../components/donate-modal';
 
+type LeaderboardItem = {
+  rank: number;
+  user_id: string;
+  nickname: string;
+  vehicle_type: string;
+  avatar_url: string | null;
+  value: number;
+  region: string;
+  created_at: string;
+};
+
 export default function LeaderboardPage() {
   const [user, setUser] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'speed' | 'acceleration'>('speed');
   const [regionFilter, setRegionFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
-  const [data, setData] = useState<any[]>([]);
+  const [rawData, setRawData] = useState<any[]>([]); // Dữ liệu thô fetch 1 lần
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [loading, setLoading] = useState(false);
 
@@ -41,12 +52,12 @@ export default function LeaderboardPage() {
     });
   }, []);
 
-  // ==================== LOAD LEADERBOARD DATA (cố định 30 user) ====================
-  const loadData = useCallback(async () => {
+  // ==================== FETCH DATA 1 LẦN DUY NHẤT (EXTREME OPTIMIZATION) ====================
+  const fetchLeaderboardData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
 
-    let query = supabase
+    const { data: result, error } = await supabase
       .from('runs')
       .select(`
         id,
@@ -63,57 +74,53 @@ export default function LeaderboardPage() {
           avatar_url
         )
       `)
-      .limit(30);   // ← CỐ ĐỊNH 30 USER
-
-    if (regionFilter !== 'all') query = query.eq('region', regionFilter);
-
-    if (typeFilter !== 'all') {
-      query = query.eq('vehicles.vehicle_type', typeFilter);
-    }
-
-    if (activeTab === 'speed') {
-      query = query
-        .order('max_speed', { ascending: false })
-        .not('max_speed', 'is', null)
-        .gt('max_speed', 0);
-    } else {
-      query = query
-        .order('zero_to_hundred', { ascending: true })
-        .not('zero_to_hundred', 'is', null)
-        .gt('zero_to_hundred', 0);
-    }
-
-    const { data: result, error } = await query;
+      .limit(100) // Fetch nhiều hơn để client-side filter an toàn
+      .order('created_at', { ascending: false });
 
     if (error) {
       console.error('Lỗi load leaderboard:', error);
-      setData([]);
-      setLoading(false);
-      return;
+      setRawData([]);
+    } else {
+      setRawData(result || []);
+    }
+    setLoading(false);
+  }, [user]);
+
+  useEffect(() => {
+    if (user) {
+      fetchLeaderboardData();
+    }
+  }, [fetchLeaderboardData]);
+
+  // ==================== CLIENT-SIDE FILTER + BEST PER USER (35 records) ====================
+  const leaderboardData = useMemo((): LeaderboardItem[] => {
+    let filtered = rawData;
+
+    // Filter region
+    if (regionFilter !== 'all') {
+      filtered = filtered.filter((item: any) => item.region === regionFilter);
     }
 
-    let filteredResult = result || [];
+    // Filter vehicle type
     if (typeFilter !== 'all') {
-      filteredResult = filteredResult.filter((item: any) => 
-        item.vehicles?.vehicle_type === typeFilter
-      );
+      filtered = filtered.filter((item: any) => item.vehicles?.vehicle_type === typeFilter);
     }
 
-    // Lấy best record mỗi user
+    // Best record per user
     const bestPerUser = new Map();
 
-    filteredResult.forEach((item: any) => {
+    filtered.forEach((item: any) => {
       const userId = item.user_id;
       if (!userId) return;
 
       const existing = bestPerUser.get(userId);
 
       if (activeTab === 'speed') {
-        if (!existing || item.max_speed > existing.max_speed) {
+        if (!existing || (item.max_speed ?? 0) > (existing.max_speed ?? 0)) {
           bestPerUser.set(userId, item);
         }
       } else {
-        if (!existing || item.zero_to_hundred < existing.zero_to_hundred) {
+        if (!existing || (item.zero_to_hundred ?? 999) < (existing.zero_to_hundred ?? 999)) {
           bestPerUser.set(userId, item);
         }
       }
@@ -121,7 +128,19 @@ export default function LeaderboardPage() {
 
     const bestRecords = Array.from(bestPerUser.values());
 
-    const formatted = bestRecords.map((item: any, index: number) => ({
+    // Sort theo tab hiện tại
+    bestRecords.sort((a, b) => {
+      if (activeTab === 'speed') {
+        return (b.max_speed ?? 0) - (a.max_speed ?? 0);
+      } else {
+        return (a.zero_to_hundred ?? 999) - (b.zero_to_hundred ?? 999);
+      }
+    });
+
+    // Lấy top 35 (tăng thêm 5 như yêu cầu)
+    const top35 = bestRecords.slice(0, 35);
+
+    return top35.map((item: any, index: number) => ({
       rank: index + 1,
       user_id: item.user_id,
       nickname: item.vehicles?.nickname || 'Không có tên',
@@ -131,18 +150,7 @@ export default function LeaderboardPage() {
       region: item.region || 'Không xác định',
       created_at: item.created_at,
     }));
-
-    setData(formatted);
-    setLoading(false);
-  }, [user, activeTab, regionFilter, typeFilter]);
-
-  useEffect(() => {
-    if (user) {
-      loadData();
-    }
-  }, [loadData]);
-
-  const memoizedData = useMemo(() => data, [data]);
+  }, [rawData, activeTab, regionFilter, typeFilter]);
 
   // ==================== LOADING AUTH ====================
   if (isAuthLoading) {
@@ -297,11 +305,11 @@ export default function LeaderboardPage() {
           </div>
 
           <TabsContent value="speed" className="mt-2">
-            <LeaderboardTable data={memoizedData} type="speed" loading={loading} user={user} />
+            <LeaderboardTable data={leaderboardData} type="speed" loading={loading} user={user} />
           </TabsContent>
 
           <TabsContent value="acceleration" className="mt-2">
-            <LeaderboardTable data={memoizedData} type="acceleration" loading={loading} user={user} />
+            <LeaderboardTable data={leaderboardData} type="acceleration" loading={loading} user={user} />
           </TabsContent>
         </Tabs>
       </div>
@@ -315,7 +323,7 @@ function LeaderboardTable({
   loading,
   user 
 }: { 
-  data: any[]; 
+  data: LeaderboardItem[]; 
   type: 'speed' | 'acceleration'; 
   loading: boolean;
   user: any;

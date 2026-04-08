@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   Dialog,
   DialogContent,
@@ -11,27 +11,45 @@ import {
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 
+// ==================== CONSTANTS (dễ chỉnh sau này) ====================
+const SHOW_INTERVAL_MS = 30 * 60 * 1000;     // 30 phút
+const PERMANENT_CLOSE_MS = 24 * 60 * 60 * 1000; // 24 giờ
+
 export default function DonateModal() {
   const [isOpen, setIsOpen] = useState(false);
 
+  // ==================== CHECK & SHOW MODAL ====================
   useEffect(() => {
-    const lastShown = localStorage.getItem('donateModalLastShown');
-    const now = Date.now();
+    try {
+      const lastShown = localStorage.getItem('donateModalLastShown');
+      const now = Date.now();
 
-    // Hiện lại sau 12 giờ (720 phút)
-    if (!lastShown || now - parseInt(lastShown) > 720 * 60 * 1000) {
-      setIsOpen(true);
-      localStorage.setItem('donateModalLastShown', now.toString());
+      if (!lastShown || now - parseInt(lastShown, 10) > SHOW_INTERVAL_MS) {
+        setIsOpen(true);
+        localStorage.setItem('donateModalLastShown', now.toString());
+      }
+    } catch (err) {
+      // Silent fail (private mode hoặc localStorage bị chặn)
+      console.warn('localStorage không khả dụng:', err);
     }
   }, []);
 
-  const handleClose = (permanent: boolean = false) => {
+  // ==================== HANDLER (đã tối ưu useCallback) ====================
+  const handleClose = useCallback((permanent: boolean = false) => {
     setIsOpen(false);
-    if (permanent) {
-      // Đóng vĩnh viễn trong 24h
-      localStorage.setItem('donateModalLastShown', (Date.now() + 24 * 60 * 60 * 1000).toString());
+
+    try {
+      if (permanent) {
+        // Đóng vĩnh viễn trong 24 giờ
+        localStorage.setItem(
+          'donateModalLastShown',
+          (Date.now() + PERMANENT_CLOSE_MS).toString()
+        );
+      }
+    } catch (err) {
+      console.warn('Không thể lưu localStorage:', err);
     }
-  };
+  }, []);
 
   return (
     <Dialog open={isOpen} onOpenChange={setIsOpen}>
@@ -49,7 +67,6 @@ export default function DonateModal() {
         <Card className="border-2 border-yellow-400 bg-zinc-900">
           <CardContent className="pt-6 pb-2">
             {/* ==================== BẠN TỰ ĐIỀN NỘI DUNG VÀO ĐÂY ==================== */}
-            {/* STK, QR Code, nội dung cảm ơn... sẽ được bạn thay vào sau */}
             Admin xin phép anh em thu phí để có thể tạo sân chơi lành mạnh, những ai muốn ghi danh bảng xếp hạng sẽ phải đóng phí, admin vẫn cho bấm gps free nhé !
           </CardContent>
         </Card>
