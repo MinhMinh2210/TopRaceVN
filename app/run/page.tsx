@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useState, useRef, useEffect, useCallback } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
@@ -14,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Play, Square, RotateCcw, AlertCircle, Car, Download } from 'lucide-react';
+import { Play, Square, RotateCcw, AlertCircle, Car, Download, CreditCard } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import DonateModal from '../components/donate-modal';
 
@@ -24,6 +24,15 @@ type Vehicle = {
   brand: string;
   model: string;
   vehicle_type: string;
+};
+
+type Package = {
+  id: string;
+  display_name: string;
+  price: number;
+  duration_type: string;
+  duration_value: number;
+  max_runs: number;
 };
 
 // ==================== MANUAL REGION DETECTION (giữ nguyên) ====================
@@ -111,6 +120,14 @@ export default function RunPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+
+  // ==================== TRẠNG THÁI MUA GÓI ====================
+  const [freeRunsUsed, setFreeRunsUsed] = useState(0);
+  const [hasActiveSub, setHasActiveSub] = useState(false);
+  const [packages, setPackages] = useState<any[]>([]);
+  const [showBuyModal, setShowBuyModal] = useState(false);
+
+  const canStartRun = hasActiveSub || freeRunsUsed < 2;
 
   const [isRunning, setIsRunning] = useState(false);
   const [currentSpeed, setCurrentSpeed] = useState(0);
@@ -222,20 +239,50 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== INIT USER ====================
+  // ==================== INIT USER + KIỂM TRA FREE + SUBSCRIPTION ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
       setUser(u);
-      if (u) {
-        const { data } = await supabase
-          .from('vehicles')
-          .select('id, nickname, brand, model, vehicle_type')
-          .eq('user_id', u.id);
-        const vehicleList = data ?? [];
-        setVehicles(vehicleList);
-        if (vehicleList.length > 0 && !selectedVehicle) setSelectedVehicle(vehicleList[0]);
+      if (!u) {
+        setIsAuthLoading(false);
+        return;
       }
+
+      const { data: vehicleData } = await supabase
+        .from('vehicles')
+        .select('id, nickname, brand, model, vehicle_type')
+        .eq('user_id', u.id);
+      const vehicleList = vehicleData ?? [];
+      setVehicles(vehicleList);
+      if (vehicleList.length > 0 && !selectedVehicle) setSelectedVehicle(vehicleList[0]);
+
+      // Lấy lượt free
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('free_runs_used')
+        .eq('id', u.id)
+        .single();
+      setFreeRunsUsed(profile?.free_runs_used || 0);
+
+      // Kiểm tra subscription
+      const { data: sub } = await supabase
+        .from('user_subscriptions')
+        .select('remaining_runs')
+        .eq('user_id', u.id)
+        .eq('status', 'active')
+        .gte('end_date', new Date().toISOString())
+        .single();
+      setHasActiveSub(!!sub && sub.remaining_runs > 0);
+
+      // Load gói cước để modal
+      const { data: pkgData } = await supabase
+        .from('packages')
+        .select('*')
+        .eq('is_active', true)
+        .order('price');
+      setPackages(pkgData || []);
+
       setIsAuthLoading(false);
     };
     init();
@@ -248,7 +295,7 @@ export default function RunPage() {
     });
   }, []);
 
-  // ==================== CHECK GPS & START RUN (giữ nguyên) ====================
+  // ==================== CHECK GPS (giữ nguyên) ====================
   const checkGPS = useCallback(async () => {
     setIsCheckingGPS(true);
     setErrorMessage('');
@@ -279,8 +326,15 @@ export default function RunPage() {
     );
   }, []);
 
+  // ==================== START RUN – ĐÃ CHẶN NGAY TẠI ĐÂY ====================
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting) return;
+
+    if (!canStartRun) {
+      setShowBuyModal(true);
+      return;
+    }
+
     if (currentRegion === 'Đang xác định...') {
       setIsAutoCheckingOnStart(true);
       checkGPS().then(() => {
@@ -290,7 +344,7 @@ export default function RunPage() {
       return;
     }
     startCountdown();
-  }, [selectedVehicle, isStarting, currentRegion, checkGPS]);
+  }, [selectedVehicle, isStarting, currentRegion, canStartRun, checkGPS]);
 
   const startCountdown = useCallback(() => {
     setIsStarting(true);
@@ -378,7 +432,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN + LOGIC MUA GÓI + FREE 2 LẦN ====================
+  // ==================== STOP RUN (giữ nguyên 3 điều kiện chống hack) ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -411,59 +465,24 @@ export default function RunPage() {
     setShowResult(true);
     setIsCalculatingRank(true);
 
-    // ==================== LOGIC MUA GÓI + FREE 2 LẦN ====================
+    // 3 điều kiện chống hack
+    const isValidGPS = gpsAccuracy !== null && gpsAccuracy <= 30;
+    const isValidSpeed = finalMaxSpeed >= 40;
+    const hasEnoughData = speedHistory.current.length >= 15;
+
+    if (!isValidGPS || !isValidSpeed || !hasEnoughData) {
+      setIsCalculatingRank(false);
+      console.warn('🚫 Run không đủ điều kiện lưu');
+      return;
+    }
+
     const currentUser = await getCurrentUser();
     if (!currentUser || !selectedVehicle) {
       setIsCalculatingRank(false);
       return;
     }
 
-    // Lấy thông tin free run và subscription
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('free_runs_used')
-      .eq('id', currentUser.id)
-      .single();
-
-    const freeUsed = profile?.free_runs_used || 0;
-
-    // Kiểm tra subscription active
-    const { data: sub } = await supabase
-      .from('user_subscriptions')
-      .select('remaining_runs')
-      .eq('user_id', currentUser.id)
-      .eq('status', 'active')
-      .gte('end_date', new Date().toISOString())
-      .single();
-
-    const hasActiveSub = !!sub && sub.remaining_runs > 0;
-
-    // Quyết định có lưu DB hay không
-    const canSaveToDB = hasActiveSub || freeUsed < 2;
-
-    if (!canSaveToDB) {
-      setIsCalculatingRank(false);
-      alert('Bạn đã hết 2 lượt thử miễn phí.\nVui lòng mua gói cước để tiếp tục lưu run và tính rank!');
-      return;
-    }
-
-    // Lưu DB
-    if (hasActiveSub) {
-      // Trừ remaining_runs
-      await supabase
-        .from('user_subscriptions')
-        .update({ remaining_runs: sub.remaining_runs - 1 })
-        .eq('user_id', currentUser.id)
-        .eq('status', 'active');
-    } else {
-      // Tăng lượt free
-      await supabase
-        .from('profiles')
-        .update({ free_runs_used: freeUsed + 1 })
-        .eq('id', currentUser.id);
-    }
-
-    // Lưu run vào DB
+    // Lưu run (đã qua kiểm tra free/sub)
     await supabase.from('runs').insert({
       user_id: currentUser.id,
       vehicle_id: selectedVehicle.id,
@@ -483,7 +502,7 @@ export default function RunPage() {
       ai_verified: false,
     });
 
-    // Tính rank background
+    // Tính rank
     const processInBackground = async () => {
       try {
         const today = new Date().toISOString().split('T')[0];
@@ -517,7 +536,7 @@ export default function RunPage() {
           isNewPersonalBest,
         }));
       } catch (err) {
-        console.error('Lỗi khi tính rank:', err);
+        console.error(err);
       } finally {
         setIsCalculatingRank(false);
       }
@@ -568,13 +587,9 @@ export default function RunPage() {
     return countdown;
   };
 
-  // ==================== GIAO DIỆN (giữ nguyên) ====================
+  // ==================== GIAO DIỆN ====================
   if (isAuthLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
-        Đang kiểm tra đăng nhập...
-      </div>
-    );
+    return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang kiểm tra đăng nhập...</div>;
   }
 
   if (!user) {
@@ -602,6 +617,20 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
+      {/* BANNER KHI HẾT FREE */}
+      {!canStartRun && (
+        <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
+          <AlertCircle className="w-6 h-6 flex-shrink-0" />
+          <div className="flex-1">
+            <p className="font-semibold">Bạn đã dùng hết 2 lượt thử miễn phí</p>
+            <p className="text-sm">Mua gói cước để tiếp tục lưu run và tính rank</p>
+          </div>
+          <Button onClick={() => setShowBuyModal(true)} className="bg-amber-400 hover:bg-amber-300 text-black">
+            Mua ngay
+          </Button>
+        </div>
+      )}
+
       {/* CARD TỐC ĐỘ LIVE */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
         <CardContent className="p-10 text-center">
@@ -640,10 +669,17 @@ export default function RunPage() {
         </div>
       )}
 
+      {/* NÚT START – ĐÃ BỊ CHẶN NGAY TẠI ĐÂY */}
       <div className="flex justify-center -mt-2">
         {!isRunning && !showResult ? (
-          <Button onClick={startRun} disabled={isStarting} className="w-[90%] py-12 text-4xl bg-green-600 hover:bg-green-700 rounded-3xl disabled:opacity-50">
-            {isStarting ? <>Loading</> : <><Play className="mr-6 h-10 w-10" />START</>}
+          <Button
+            onClick={startRun}
+            disabled={isStarting || !canStartRun}
+            className={`w-[90%] py-12 text-4xl rounded-3xl transition-all ${
+              !canStartRun ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
+            }`}
+          >
+            {isStarting ? <>Loading</> : !canStartRun ? <>Mua gói để chạy</> : <><Play className="mr-6 h-10 w-10" />START</>}
           </Button>
         ) : isRunning ? (
           <Button onClick={stopRun} className="w-full py-12 text-4xl bg-red-600 hover:bg-red-700 rounded-3xl">
@@ -722,14 +758,6 @@ export default function RunPage() {
                 )}
               </div>
 
-              {/* THÔNG BÁO CHỐNG HACK + MUA GÓI */}
-              {(!gpsAccuracy || gpsAccuracy > 30 || runResult.maxSpeed < 40 || speedHistory.current.length < 15) && (
-                <div className="bg-yellow-900/50 border border-yellow-500 text-yellow-300 p-4 rounded-2xl text-center text-sm">
-                  ⚠️ Run không đủ điều kiện lưu DB<br />
-                  (GPS &gt; 30m hoặc tốc độ thấp hoặc run quá ngắn)
-                </div>
-              )}
-
               <div className="flex gap-4 pt-4">
                 <Button onClick={resetRun} variant="outline" className="flex-1 py-6 text-base">
                   <RotateCcw className="mr-2 h-5 w-5" />
@@ -745,6 +773,37 @@ export default function RunPage() {
           </Card>
         </div>
       )}
+
+      {/* MODAL MUA GÓI */}
+      <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
+        <DialogContent className="w-[95vw] max-w-lg rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-3xl font-black">Chọn gói cước</DialogTitle>
+            <DialogDescription>Bạn đã hết lượt miễn phí. Hãy chọn gói phù hợp</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4 max-h-[60vh] overflow-auto">
+            {packages.map((pkg) => (
+              <Card key={pkg.id} className="bg-zinc-900 border-zinc-700">
+                <CardContent className="p-6 flex justify-between items-center">
+                  <div>
+                    <p className="font-semibold text-xl">{pkg.display_name}</p>
+                    <p className="text-sm text-zinc-400">
+                      {pkg.duration_value} {pkg.duration_type === 'hours' ? 'giờ' : pkg.duration_type === 'days' ? 'ngày' : 'phút'} • {pkg.max_runs} run
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-4xl font-black text-cyan-400">{pkg.price.toLocaleString()}đ</p>
+                    <Button size="sm" className="mt-3">Mua ngay</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Button variant="outline" onClick={() => setShowBuyModal(false)} className="w-full">
+            Đóng
+          </Button>
+        </DialogContent>
+      </Dialog>
 
       <div className="text-center py-20">
         <h1 className="text-[2.8rem] md:text-[3.2rem] font-black leading-none tracking-tighter">
