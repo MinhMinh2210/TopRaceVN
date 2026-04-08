@@ -42,7 +42,7 @@ export default function LeaderboardPage() {
     });
   }, []);
 
-  // ==================== LOAD DATA (10 items mỗi lần) ====================
+  // ==================== LOAD DATA (10 items/lần) ====================
   const loadData = useCallback(async (resetPage = false) => {
     if (!user) return;
 
@@ -72,21 +72,12 @@ export default function LeaderboardPage() {
       .range((currentPage - 1) * 10, currentPage * 10 - 1);
 
     if (regionFilter !== 'all') query = query.eq('region', regionFilter);
-
-    if (typeFilter !== 'all') {
-      query = query.eq('vehicles.vehicle_type', typeFilter);
-    }
+    if (typeFilter !== 'all') query = query.eq('vehicles.vehicle_type', typeFilter);
 
     if (activeTab === 'speed') {
-      query = query
-        .order('max_speed', { ascending: false })
-        .not('max_speed', 'is', null)
-        .gt('max_speed', 0);
+      query = query.order('max_speed', { ascending: false }).gt('max_speed', 0);
     } else {
-      query = query
-        .order('zero_to_hundred', { ascending: true })
-        .not('zero_to_hundred', 'is', null)
-        .gt('zero_to_hundred', 0);
+      query = query.order('zero_to_hundred', { ascending: true }).gt('zero_to_hundred', 0);
     }
 
     const { data: result, error } = await query;
@@ -103,7 +94,6 @@ export default function LeaderboardPage() {
     (result || []).forEach((item: any) => {
       const userId = item.user_id;
       if (!userId) return;
-
       const existing = bestPerUser.get(userId);
       if (activeTab === 'speed') {
         if (!existing || item.max_speed > existing.max_speed) bestPerUser.set(userId, item);
@@ -122,7 +112,6 @@ export default function LeaderboardPage() {
       avatar_url: item.profiles?.avatar_url || null,
       value: activeTab === 'speed' ? item.max_speed : item.zero_to_hundred,
       region: item.region || 'Không xác định',
-      created_at: item.created_at,
     }));
 
     if (resetPage) {
@@ -144,7 +133,6 @@ export default function LeaderboardPage() {
 
   const memoizedData = useMemo(() => data, [data]);
 
-  // ==================== LOADING AUTH ====================
   if (isAuthLoading) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
@@ -153,7 +141,6 @@ export default function LeaderboardPage() {
     );
   }
 
-  // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
@@ -164,10 +151,7 @@ export default function LeaderboardPage() {
             </div>
             <h1 className="text-3xl font-black mb-2">Bảng Xếp Hạng</h1>
             <p className="text-zinc-400 mb-8">Đăng nhập để xem bảng xếp hạng toàn quốc</p>
-            <Button
-              onClick={handleGoogleLogin}
-              className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
-            >
+            <Button onClick={handleGoogleLogin} className="w-full py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3">
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Google Login
             </Button>
@@ -180,11 +164,9 @@ export default function LeaderboardPage() {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP ====================
   return (
     <div className="min-h-screen bg-zinc-950 pb-20 px-4">
       <div className="max-w-2xl mx-auto">
-        {/* Header */}
         <div className="text-center pt-8 pb-6">
           <div className="inline-flex items-center gap-2 text-4xl font-black tracking-tighter text-white">
             <span className="text-cyan-400">Trip</span>
@@ -204,22 +186,21 @@ export default function LeaderboardPage() {
           </TabsList>
 
           <div className="flex gap-3 mt-8 mb-6">
-            <Select value={regionFilter} onValueChange={(v) => { setRegionFilter(v); }}>
+            <Select value={regionFilter} onValueChange={setRegionFilter}>
               <SelectTrigger className="flex-1 bg-zinc-900 border-zinc-700">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Toàn quốc</SelectItem>
-                {/* danh sách tỉnh giữ nguyên như code cũ của bạn */}
                 <SelectItem value="TP.HCM">TP.HCM</SelectItem>
                 <SelectItem value="Hà Nội">Hà Nội</SelectItem>
                 <SelectItem value="Đà Nẵng">Đà Nẵng</SelectItem>
                 <SelectItem value="Cần Thơ">Cần Thơ</SelectItem>
-                {/* ... bạn có thể copy hết 63 tỉnh từ code cũ nếu muốn */}
+                {/* Bạn có thể copy thêm các tỉnh khác nếu cần */}
               </SelectContent>
             </Select>
 
-            <Select value={typeFilter} onValueChange={(v) => { setTypeFilter(v); }}>
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
               <SelectTrigger className="flex-1 bg-zinc-900 border-zinc-700">
                 <SelectValue />
               </SelectTrigger>
@@ -243,17 +224,17 @@ export default function LeaderboardPage() {
           </TabsContent>
         </Tabs>
 
-        {/* NÚT XEM THÊM */}
-        {hasMore && !loading && (
-          <div className="flex justify-center mt-8">
+        {/* NÚT XEM THÊM - ĐÃ FIX VỊ TRÍ */}
+        {hasMore && (
+          <div className="flex justify-center mt-10 mb-8">
             <Button
               onClick={() => loadData(false)}
               disabled={loadingMore}
               variant="outline"
-              className="px-8 py-6 text-base flex items-center gap-2"
+              className="px-10 py-7 text-base flex items-center gap-3"
             >
               {loadingMore ? (
-                'Đang tải...'
+                'Đang tải thêm...'
               ) : (
                 <>
                   Xem thêm 10 racer <ChevronDown className="w-5 h-5" />
@@ -269,7 +250,7 @@ export default function LeaderboardPage() {
   );
 }
 
-// Component bảng giữ nguyên style cũ
+// ==================== BẢNG XẾP HẠNG (giữ nguyên style) ====================
 function LeaderboardTable({ 
   data, 
   type, 
@@ -295,7 +276,7 @@ function LeaderboardTable({
     return (
       <Card className="bg-zinc-900 border-zinc-800 w-full">
         <CardContent className="p-12 text-center text-zinc-400">
-          Chưa có dữ liệu run nào. Hãy chạy và ghi lại kết quả đầu tiên!
+          Chưa có dữ liệu. Hãy chạy và ghi lại kết quả đầu tiên!
         </CardContent>
       </Card>
     );
