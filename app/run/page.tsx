@@ -120,6 +120,7 @@ const getGPSStatusInfo = (accuracy: number, speedAvailable: boolean = false) => 
 
 export default function RunPage() {
   const [user, setUser] = useState<any>(null);
+  const [nickname, setNickname] = useState<string>('user');
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
@@ -237,7 +238,7 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== INIT ====================
+  // ==================== INIT + LẤY NICKNAME THẬT ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
@@ -248,8 +249,14 @@ export default function RunPage() {
       setVehicles(vData ?? []);
       if (vData?.length) setSelectedVehicle(vData[0]);
 
-      const { data: p } = await supabase.from('profiles').select('free_runs_used').eq('id', u.id).single();
-      setFreeRunsUsed(p?.free_runs_used || 0);
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('free_runs_used, nickname')
+        .eq('id', u.id)
+        .single();
+
+      setFreeRunsUsed(profile?.free_runs_used || 0);
+      setNickname(profile?.nickname || 'user');
 
       const { data: sub } = await supabase
         .from('user_subscriptions')
@@ -569,7 +576,7 @@ export default function RunPage() {
     if (!selectedPackage || !user) return;
     setIsConfirmingPayment(true);
 
-    const memo = `${user.nickname || 'user'}_${selectedPackage.name}`;
+    const memo = `${nickname}_${selectedPackage.name}`;
 
     const { error } = await supabase.from('payment_logs').insert({
       user_id: user.id,
@@ -629,13 +636,11 @@ export default function RunPage() {
             <p className="font-semibold">Bạn đã dùng hết 2 lượt thử miễn phí</p>
             <p className="text-sm">Mua gói cước để tiếp tục lưu run và tính rank</p>
           </div>
-          <Button onClick={() => setShowBuyModal(true)} className="bg-amber-400 hover:bg-amber-300 text-black">
-            Mua ngay
-          </Button>
+          <Button onClick={() => setShowBuyModal(true)} className="bg-amber-400 hover:bg-amber-300 text-black">Mua ngay</Button>
         </div>
       )}
 
-      {/* CARD TỐC ĐỘ LIVE + GPS STATUS + NÚT START (giữ nguyên) */}
+      {/* CARD TỐC ĐỘ LIVE */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
         <CardContent className="p-10 text-center">
           <p className="text-zinc-400 text-base mb-3">SPEED</p>
@@ -648,6 +653,7 @@ export default function RunPage() {
         </CardContent>
       </Card>
 
+      {/* GPS STATUS */}
       <div className="bg-zinc-900 border border-zinc-700 rounded-3xl p-6 text-sm space-y-3">
         <div className="flex justify-between items-center">
           <span className="text-zinc-400">Khu vực:</span>
@@ -801,9 +807,7 @@ export default function RunPage() {
               </Card>
             ))}
           </div>
-          <Button variant="outline" onClick={() => setShowBuyModal(false)} className="w-full">
-            Đóng
-          </Button>
+          <Button variant="outline" onClick={() => setShowBuyModal(false)} className="w-full">Đóng</Button>
         </DialogContent>
       </Dialog>
 
@@ -834,9 +838,9 @@ export default function RunPage() {
                 <Label>Nội dung chuyển khoản</Label>
                 <div className="flex gap-2 bg-black/50 p-3 rounded-xl items-center">
                   <span className="font-mono flex-1 break-all">
-                    {user?.nickname || 'user'}_{selectedPackage?.name}
+                    {nickname}_{selectedPackage?.name}
                   </span>
-                  <Button size="sm" onClick={() => copyToClipboard(`${user?.nickname || 'user'}_${selectedPackage?.name}`)}>
+                  <Button size="sm" onClick={() => copyToClipboard(`${nickname}_${selectedPackage?.name}`)}>
                     <Copy className="w-4 h-4" />
                   </Button>
                 </div>
@@ -850,9 +854,7 @@ export default function RunPage() {
               {isConfirmingPayment ? 'Đang gửi yêu cầu...' : 'Tôi đã chuyển khoản'}
             </Button>
 
-            <Button variant="outline" onClick={() => setShowPaymentModal(false)} className="w-full">
-              Đóng
-            </Button>
+            <Button variant="outline" onClick={() => setShowPaymentModal(false)} className="w-full">Đóng</Button>
           </div>
         </DialogContent>
       </Dialog>
