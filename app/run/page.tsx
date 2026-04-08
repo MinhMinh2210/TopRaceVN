@@ -821,17 +821,17 @@ export default function RunPage() {
             <div className="bg-zinc-900 rounded-2xl p-5 space-y-5">
               <div>
                 <Label>Ngân hàng</Label>
-                <Input value="Vietcombank" readOnly className="bg-black/50" />
+                <Input value="LP BANK" readOnly className="bg-black/50" />
               </div>
               <div>
                 <Label>Tên chủ tài khoản</Label>
-                <Input value="TOP RACE VN" readOnly className="bg-black/50" />
+                <Input value="NGUYEN BINH MINH" readOnly className="bg-black/50" />
               </div>
               <div>
                 <Label>Số tài khoản</Label>
                 <div className="flex gap-2">
-                  <Input value="123456789" readOnly className="bg-black/50 font-mono" />
-                  <Button onClick={() => copyToClipboard('123456789')}>Copy</Button>
+                  <Input value="44405006666" readOnly className="bg-black/50 font-mono" />
+                  <Button onClick={() => copyToClipboard('44405006666')}>Copy</Button>
                 </div>
               </div>
               <div>
