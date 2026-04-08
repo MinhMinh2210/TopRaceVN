@@ -6,6 +6,8 @@ import { getCurrentUser } from '@/app/features/auth/getUser';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -14,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Play, Square, RotateCcw, AlertCircle, Car, Download, CreditCard } from 'lucide-react';
+import { Play, Square, RotateCcw, AlertCircle, Car, Download, Copy } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import DonateModal from '../components/donate-modal';
 
@@ -28,6 +30,7 @@ type Vehicle = {
 
 type Package = {
   id: string;
+  name: string;
   display_name: string;
   price: number;
   duration_type: string;
@@ -126,6 +129,9 @@ export default function RunPage() {
   const [hasActiveSub, setHasActiveSub] = useState(false);
   const [packages, setPackages] = useState<any[]>([]);
   const [showBuyModal, setShowBuyModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState<any>(null);
+  const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
 
   const canStartRun = hasActiveSub || freeRunsUsed < 2;
 
@@ -257,7 +263,6 @@ export default function RunPage() {
       setVehicles(vehicleList);
       if (vehicleList.length > 0 && !selectedVehicle) setSelectedVehicle(vehicleList[0]);
 
-      // Lấy lượt free
       const { data: profile } = await supabase
         .from('profiles')
         .select('free_runs_used')
@@ -265,7 +270,6 @@ export default function RunPage() {
         .single();
       setFreeRunsUsed(profile?.free_runs_used || 0);
 
-      // Kiểm tra subscription
       const { data: sub } = await supabase
         .from('user_subscriptions')
         .select('remaining_runs')
@@ -275,7 +279,6 @@ export default function RunPage() {
         .single();
       setHasActiveSub(!!sub && sub.remaining_runs > 0);
 
-      // Load gói cước để modal
       const { data: pkgData } = await supabase
         .from('packages')
         .select('*')
@@ -295,7 +298,7 @@ export default function RunPage() {
     });
   }, []);
 
-  // ==================== CHECK GPS (giữ nguyên) ====================
+  // ==================== CHECK GPS & START RUN ====================
   const checkGPS = useCallback(async () => {
     setIsCheckingGPS(true);
     setErrorMessage('');
@@ -326,7 +329,6 @@ export default function RunPage() {
     );
   }, []);
 
-  // ==================== START RUN – ĐÃ CHẶN NGAY TẠI ĐÂY ====================
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting) return;
 
@@ -432,7 +434,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN (giữ nguyên 3 điều kiện chống hack) ====================
+  // ==================== STOP RUN (giữ nguyên) ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -465,7 +467,6 @@ export default function RunPage() {
     setShowResult(true);
     setIsCalculatingRank(true);
 
-    // 3 điều kiện chống hack
     const isValidGPS = gpsAccuracy !== null && gpsAccuracy <= 30;
     const isValidSpeed = finalMaxSpeed >= 40;
     const hasEnoughData = speedHistory.current.length >= 15;
@@ -482,7 +483,6 @@ export default function RunPage() {
       return;
     }
 
-    // Lưu run (đã qua kiểm tra free/sub)
     await supabase.from('runs').insert({
       user_id: currentUser.id,
       vehicle_id: selectedVehicle.id,
@@ -502,7 +502,6 @@ export default function RunPage() {
       ai_verified: false,
     });
 
-    // Tính rank
     const processInBackground = async () => {
       try {
         const today = new Date().toISOString().split('T')[0];
@@ -587,6 +586,41 @@ export default function RunPage() {
     return countdown;
   };
 
+  // ==================== THANH TOÁN CHI TIẾT ====================
+  const openPaymentModal = (pkg: any) => {
+    setSelectedPackage(pkg);
+    setShowBuyModal(false);
+    setShowPaymentModal(true);
+  };
+
+  const confirmPayment = async () => {
+    if (!selectedPackage || !user) return;
+    setIsConfirmingPayment(true);
+
+    const memo = `${user.nickname || 'user'}_${selectedPackage.name}`;
+
+    const { error } = await supabase.from('payment_logs').insert({
+      user_id: user.id,
+      package_id: selectedPackage.id,
+      amount: selectedPackage.price,
+      memo: memo,
+      status: 'pending',
+    });
+
+    if (error) {
+      alert('Lỗi: ' + error.message);
+    } else {
+      alert('✅ Yêu cầu thanh toán đã gửi!\nAdmin sẽ kiểm tra và cấp gói trong dashboard.');
+      setShowPaymentModal(false);
+      setSelectedPackage(null);
+    }
+    setIsConfirmingPayment(false);
+  };
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
+  };
+
   // ==================== GIAO DIỆN ====================
   if (isAuthLoading) {
     return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang kiểm tra đăng nhập...</div>;
@@ -669,7 +703,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* NÚT START – ĐÃ BỊ CHẶN NGAY TẠI ĐÂY */}
+      {/* NÚT START */}
       <div className="flex justify-center -mt-2">
         {!isRunning && !showResult ? (
           <Button
@@ -774,7 +808,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* MODAL MUA GÓI */}
+      {/* MODAL DANH SÁCH GÓI */}
       <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
         <DialogContent className="w-[95vw] max-w-lg rounded-3xl">
           <DialogHeader>
@@ -793,7 +827,9 @@ export default function RunPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-4xl font-black text-cyan-400">{pkg.price.toLocaleString()}đ</p>
-                    <Button size="sm" className="mt-3">Mua ngay</Button>
+                    <Button size="sm" className="mt-3" onClick={() => openPaymentModal(pkg)}>
+                      Mua ngay
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
@@ -802,6 +838,56 @@ export default function RunPage() {
           <Button variant="outline" onClick={() => setShowBuyModal(false)} className="w-full">
             Đóng
           </Button>
+        </DialogContent>
+      </Dialog>
+
+      {/* MODAL CHUYỂN KHOẢN CHI TIẾT (có trường chỉnh sửa) */}
+      <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
+        <DialogContent className="w-[95vw] max-w-md rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Thanh toán {selectedPackage?.display_name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="bg-zinc-900 rounded-2xl p-5 space-y-5">
+              <div>
+                <Label>Ngân hàng</Label>
+                <Input defaultValue="Vietcombank" className="bg-black/50" />
+              </div>
+              <div>
+                <Label>Tên chủ tài khoản</Label>
+                <Input defaultValue="TOP RACE VN" className="bg-black/50" />
+              </div>
+              <div>
+                <Label>Số tài khoản</Label>
+                <div className="flex gap-2">
+                  <Input defaultValue="123456789" className="bg-black/50 font-mono" />
+                  <Button onClick={() => copyToClipboard('123456789')}>Copy</Button>
+                </div>
+              </div>
+              <div>
+                <Label>Nội dung chuyển khoản</Label>
+                <div className="flex gap-2 bg-black/50 p-3 rounded-xl items-center">
+                  <span className="font-mono flex-1 break-all">
+                    {user?.nickname || 'user'}_{selectedPackage?.name}
+                  </span>
+                  <Button size="sm" onClick={() => copyToClipboard(`${user?.nickname || 'user'}_${selectedPackage?.name}`)}>
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="text-center text-4xl font-black text-cyan-400">
+                {selectedPackage?.price.toLocaleString()}đ
+              </div>
+            </div>
+
+            <Button onClick={confirmPayment} disabled={isConfirmingPayment} className="w-full py-7 text-lg bg-green-600 hover:bg-green-700">
+              {isConfirmingPayment ? 'Đang gửi yêu cầu...' : 'Tôi đã chuyển khoản'}
+            </Button>
+
+            <Button variant="outline" onClick={() => setShowPaymentModal(false)} className="w-full">
+              Đóng
+            </Button>
+          </div>
         </DialogContent>
       </Dialog>
 
