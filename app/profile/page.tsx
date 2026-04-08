@@ -52,6 +52,7 @@ export default function MyProfilePage() {
   const [runsHistory, setRunsHistory] = useState<RunHistory[]>([]);
   const [stats, setStats] = useState({ runs: 0, bestSpeed: 0, rank: '—' as string | number });
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
   const [editOpen, setEditOpen] = useState(false);
   const [editForm, setEditForm] = useState<Profile>({ nickname: '', full_name: '', avatar_url: '', bio: '' });
@@ -61,13 +62,14 @@ export default function MyProfilePage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedRun, setSelectedRun] = useState<RunHistory | null>(null);
 
-  // ==================== LOAD ALL DATA (PARALLEL + LIMIT 3 RUN) ====================
+  // ==================== LOAD ALL DATA (PARALLEL - EXTREME OPTIMIZATION) ====================
   const loadAllData = useCallback(async () => {
     const currentUser = await getCurrentUser();
     setUser(currentUser);
 
     if (!currentUser) {
       setIsAuthLoading(false);
+      setIsDataLoaded(true);
       return;
     }
 
@@ -95,6 +97,7 @@ export default function MyProfilePage() {
       supabase.from('runs').select('max_speed').eq('user_id', currentUser.id).order('max_speed', { ascending: false }).limit(1),
     ]);
 
+    // Set data
     setProfile(profileRes.data);
     setEditForm(profileRes.data || { nickname: '', full_name: '', avatar_url: '', bio: '' });
     setVehicles(vehiclesRes.data || []);
@@ -117,6 +120,7 @@ export default function MyProfilePage() {
     const runCount = statsRes.count || 0;
     const bestSpeed = bestRes.data?.[0]?.max_speed || 0;
 
+    // Tính rank global
     let rank: string | number = '—';
     if (bestSpeed > 0) {
       const { count: higher } = await supabase
@@ -127,8 +131,8 @@ export default function MyProfilePage() {
     }
 
     setStats({ runs: runCount, bestSpeed, rank });
-
     setIsAuthLoading(false);
+    setIsDataLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -147,7 +151,7 @@ export default function MyProfilePage() {
     await logout();
   }, []);
 
-  // ==================== AVATAR ≤ 5MB ====================
+  // ==================== AVATAR HANDLER ====================
   const handleAvatarChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -160,6 +164,7 @@ export default function MyProfilePage() {
     setPreviewUrl(URL.createObjectURL(file));
   }, []);
 
+  // ==================== UPDATE PROFILE ====================
   const handleUpdateProfile = useCallback(async () => {
     if (!user) return;
     let avatarUrl = editForm.avatar_url;
@@ -189,10 +194,10 @@ export default function MyProfilePage() {
   }, [user, editForm, avatarFile]);
 
   // ==================== LOADING ====================
-  if (isAuthLoading) {
+  if (isAuthLoading || !isDataLoaded) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
-        Đang kiểm tra đăng nhập...
+        Đang tải profile...
       </div>
     );
   }
@@ -313,7 +318,7 @@ export default function MyProfilePage() {
         <LogOut className="h-5 w-5" /> Đăng xuất
       </Button>
 
-      {/* Dialog Lịch sử Run (3 lần gần nhất) */}
+      {/* Dialog Lịch sử Run */}
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <DialogContent className="max-w-2xl w-[95vw] max-h-[85vh]">
           <DialogHeader>
@@ -342,7 +347,7 @@ export default function MyProfilePage() {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog CHI TIẾT RUN - FULL THÔNG SỐ */}
+      {/* Dialog CHI TIẾT RUN */}
       <Dialog open={!!selectedRun} onOpenChange={() => setSelectedRun(null)}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -350,13 +355,11 @@ export default function MyProfilePage() {
           </DialogHeader>
           {selectedRun && (
             <div className="space-y-6 py-4">
-              {/* Tốc độ chính */}
               <div className="text-center">
                 <p className="text-7xl font-black text-green-400">{selectedRun.max_speed}</p>
                 <p className="text-zinc-400 text-2xl">km/h</p>
               </div>
 
-              {/* Các chỉ số tốc độ */}
               <div className="grid grid-cols-2 gap-6 border-t border-zinc-700 pt-6">
                 {selectedRun.zero_to_sixty && (
                   <div className="text-center">
@@ -378,7 +381,6 @@ export default function MyProfilePage() {
                 )}
               </div>
 
-              {/* Thông tin phụ */}
               <div className="space-y-4 text-sm border-t border-zinc-700 pt-6">
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Khu vực</span>
