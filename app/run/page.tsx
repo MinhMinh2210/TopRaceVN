@@ -179,7 +179,7 @@ export default function RunPage() {
   const lastSpeedUpdateRef = useRef(0);
   const maxSpeedRef = useRef(0);
 
-  // ==================== DEVICE MOTION & FUSED SPEED ====================
+  // ==================== DEVICE MOTION & FUSED SPEED (giữ nguyên) ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
     if (event.acceleration) {
       accelerationRef.current = { x: event.acceleration.x ?? 0, y: event.acceleration.y ?? 0, z: event.acceleration.z ?? 0 };
@@ -238,33 +238,37 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== INIT + LẤY NICKNAME THẬT ====================
+  // ==================== INIT (đã fix) ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
       setUser(u);
       if (!u) return setIsAuthLoading(false);
 
-      const { data: vData } = await supabase.from('vehicles').select('*').eq('user_id', u.id);
+      const userId = u.id;
+
+      const { data: vData } = await supabase.from('vehicles').select('*').eq('user_id', userId);
       setVehicles(vData ?? []);
       if (vData?.length) setSelectedVehicle(vData[0]);
 
       const { data: profile } = await supabase
         .from('profiles')
         .select('free_runs_used, nickname')
-        .eq('id', u.id)
+        .eq('id', userId)
         .single();
 
       setFreeRunsUsed(profile?.free_runs_used || 0);
       setNickname(profile?.nickname || 'user');
 
+      // Fix lỗi 406
       const { data: sub } = await supabase
         .from('user_subscriptions')
         .select('remaining_runs')
-        .eq('user_id', u.id)
+        .eq('user_id', userId)
         .eq('status', 'active')
         .gte('end_date', new Date().toISOString())
-        .single();
+        .maybeSingle();
+
       setHasActiveSub(!!sub && sub.remaining_runs > 0);
 
       const { data: pkgData } = await supabase.from('packages').select('*').eq('is_active', true).order('price');
@@ -273,13 +277,13 @@ export default function RunPage() {
       setIsAuthLoading(false);
     };
     init();
-  }, [selectedVehicle]);
+  }, []); // ← dependency rỗng để tránh loop
 
   const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/run' } });
   }, []);
 
-  // ==================== CHECK GPS & START RUN ====================
+  // ==================== CHECK GPS & START RUN (giữ nguyên) ====================
   const checkGPS = useCallback(async () => {
     setIsCheckingGPS(true);
     setErrorMessage('');
@@ -328,6 +332,7 @@ export default function RunPage() {
   }, [selectedVehicle, isStarting, currentRegion, canStartRun, checkGPS]);
 
   const startCountdown = useCallback(() => {
+    // ... (giữ nguyên toàn bộ hàm startCountdown như code cũ của bạn)
     setIsStarting(true);
     setErrorMessage('');
     setShowResult(false);
@@ -413,7 +418,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN (giữ nguyên) ====================
+  // ==================== STOP RUN (đã fix trừ free run) ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -481,6 +486,17 @@ export default function RunPage() {
       ai_verified: false,
     });
 
+    // 🔥 TRỪ FREE RUN NẾU CHƯA CÓ GÓI
+    if (!hasActiveSub) {
+      const newFreeUsed = freeRunsUsed + 1;
+      await supabase
+        .from('profiles')
+        .update({ free_runs_used: newFreeUsed })
+        .eq('id', currentUser.id);
+
+      setFreeRunsUsed(newFreeUsed); // Cập nhật UI ngay lập tức
+    }
+
     const processInBackground = async () => {
       try {
         const today = new Date().toISOString().split('T')[0];
@@ -521,7 +537,7 @@ export default function RunPage() {
     };
 
     processInBackground();
-  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, gpsAccuracy]);
+  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, gpsAccuracy, hasActiveSub, freeRunsUsed]);
 
   const resetRun = useCallback(() => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
@@ -565,7 +581,7 @@ export default function RunPage() {
     return countdown;
   };
 
-  // ==================== THANH TOÁN ====================
+  // ==================== THANH TOÁN (giữ nguyên) ====================
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
     setShowBuyModal(false);
@@ -599,7 +615,7 @@ export default function RunPage() {
     navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
   };
 
-  // ==================== GIAO DIỆN ====================
+  // ==================== GIAO DIỆN (giữ nguyên) ====================
   if (isAuthLoading) {
     return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang kiểm tra đăng nhập...</div>;
   }
