@@ -1,23 +1,18 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import dynamic from 'next/dynamic';
 
 import { Car, Trophy, Clock, Gauge, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 
-import LandingContent from './landing-content';   // ← import file vừa tạo
-
-const DonateModal = dynamic(() => import('./components/donate-modal'), {
-  ssr: false,
-  loading: () => <div className="h-8 bg-zinc-900 rounded-2xl animate-pulse" />,
-});
+import LandingContent from './landing-content';
+import DonateModal from './components/donate-modal';   // ← import trực tiếp (đã fix lỗi)
 
 export default async function Home() {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Chưa login → render Landing (Client Component)
+  // Chưa login → render Landing
   if (!user) {
     return <LandingContent />;
   }
