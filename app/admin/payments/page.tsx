@@ -23,13 +23,12 @@ export default function AdminPaymentsPage() {
     setError('');
 
     try {
-      // Load pending payments với join an toàn
       const { data: payments, error: payError } = await supabase
         .from('payment_logs')
         .select(`
           *,
-          profiles:user_id (nickname),
-          packages:package_id (display_name, price, duration_type, duration_value, max_runs)
+          profiles!payment_logs_user_id_fkey (nickname),
+          packages!payment_logs_package_id_fkey (display_name, price, duration_type, duration_value, max_runs)
         `)
         .eq('status', 'pending')
         .order('created_at', { ascending: false });
@@ -38,7 +37,6 @@ export default function AdminPaymentsPage() {
 
       setPendingPayments(payments || []);
 
-      // Load users & packages cho phần duyệt thủ công
       const [uRes, pRes] = await Promise.all([
         supabase.from('profiles').select('id, nickname').order('nickname'),
         supabase.from('packages').select('*').eq('is_active', true).order('price'),
@@ -54,7 +52,7 @@ export default function AdminPaymentsPage() {
     }
   };
 
-  // ==================== REALTIME (hiển thị NGAY khi user thanh toán) ====================
+  // ==================== REALTIME (đã fix TS error) ====================
   useEffect(() => {
     loadData();
 
@@ -63,21 +61,21 @@ export default function AdminPaymentsPage() {
       .on(
         'postgres_changes',
         {
-          event: '*',                    // INSERT, UPDATE, DELETE
+          event: '*',
           schema: 'public',
           table: 'payment_logs',
-          filter: 'status=eq.pending',   // chỉ quan tâm pending
+          filter: 'status=eq.pending',
         },
-        (payload) => {
-          console.log('🔔 Realtime payment change:', payload.eventType);
-          loadData(); // tự động refresh ngay
+        () => {
+          // Fire-and-forget (không await)
+          loadData();
         }
       )
       .subscribe((status) => {
-        console.log('🔌 Realtime status:', status);
+        console.log('🔌 Realtime subscription status:', status);
       });
 
-    // Cleanup khi unmount
+    // Cleanup function (bắt buộc để fix TS error)
     return () => {
       supabase.removeChannel(channel);
     };
@@ -95,7 +93,6 @@ export default function AdminPaymentsPage() {
       else if (pkg.duration_type === 'hours') endDate.setHours(endDate.getHours() + pkg.duration_value);
       else endDate.setDate(endDate.getDate() + pkg.duration_value);
 
-      // Tạo subscription
       const { error: subError } = await supabase.from('user_subscriptions').insert({
         user_id: payment.user_id,
         package_id: payment.package_id,
@@ -104,19 +101,12 @@ export default function AdminPaymentsPage() {
         remaining_runs: pkg.max_runs,
         status: 'active',
       });
-
       if (subError) throw subError;
 
-      // Cập nhật payment_logs
       const { error: updateError } = await supabase
         .from('payment_logs')
-        .update({
-          status: 'approved',
-          approved_at: new Date().toISOString(),
-          approved_by: (await supabase.auth.getUser()).data.user?.id,
-        })
+        .update({ status: 'approved', approved_at: new Date().toISOString() })
         .eq('id', payment.id);
-
       if (updateError) throw updateError;
 
       alert(`✅ Đã cấp gói ${pkg.display_name} cho ${payment.profiles?.nickname}`);
@@ -147,7 +137,6 @@ export default function AdminPaymentsPage() {
         .select('*')
         .eq('id', selectedPackageId)
         .single();
-
       if (pkgError || !pkg) throw new Error('Không tìm thấy gói');
 
       const endDate = new Date();
@@ -163,7 +152,6 @@ export default function AdminPaymentsPage() {
         remaining_runs: pkg.max_runs,
         status: 'active',
       });
-
       if (subError) throw subError;
 
       alert(`✅ Đã cấp gói ${pkg.display_name} thủ công!`);
@@ -187,13 +175,10 @@ export default function AdminPaymentsPage() {
         </Button>
       </div>
 
-      {/* DANH SÁCH PENDING - REALTIME */}
+      {/* DANH SÁCH PENDING */}
       <Card className="mb-10">
         <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            Yêu cầu thanh toán đang chờ ({pendingPayments.length})
-            {loading && <span className="text-sm text-zinc-400">(đang tải...)</span>}
-          </CardTitle>
+          <CardTitle>Yêu cầu thanh toán đang chờ ({pendingPayments.length})</CardTitle>
         </CardHeader>
         <CardContent>
           {pendingPayments.length === 0 ? (
@@ -215,7 +200,6 @@ export default function AdminPaymentsPage() {
                         {new Date(p.created_at).toLocaleString('vi-VN')}
                       </p>
                     </div>
-
                     <div className="flex gap-3">
                       <Button
                         onClick={() => approvePending(p)}
