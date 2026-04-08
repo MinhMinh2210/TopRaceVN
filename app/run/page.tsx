@@ -169,6 +169,9 @@ export default function RunPage() {
   const [isStarting, setIsStarting] = useState(false);
   const [isAutoCheckingOnStart, setIsAutoCheckingOnStart] = useState(false);
 
+  // LOCK chống spam nút START
+  const isStartingRunRef = useRef(false);
+
   const resultRef = useRef<HTMLDivElement>(null);
   const speedHistory = useRef<{ timestamp: number; speed: number }[]>([]);
 
@@ -322,22 +325,31 @@ export default function RunPage() {
     );
   }, []);
 
+  // ==================== START RUN (ANTI-SPAM) ====================
   const startRun = useCallback(() => {
-    if (!selectedVehicle || isStarting) return;
+    if (!selectedVehicle || isStarting || isStartingRunRef.current) return;
+
+    isStartingRunRef.current = true; // LOCK ngay lập tức
+
     if (!canStartRun) {
       loadPackages();
       setShowBuyModal(true);
+      isStartingRunRef.current = false;
       return;
     }
+
     if (currentRegion === 'Đang xác định...') {
       setIsAutoCheckingOnStart(true);
       checkGPS().then(() => {
         setIsAutoCheckingOnStart(false);
         startCountdown();
+        isStartingRunRef.current = false;
       });
       return;
     }
+
     startCountdown();
+    isStartingRunRef.current = false;
   }, [selectedVehicle, isStarting, currentRegion, canStartRun, checkGPS, loadPackages]);
 
   const startCountdown = useCallback(() => {
@@ -426,7 +438,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN (FIX MẤT NÚT + KẾT QUẢ) ====================
+  // ==================== STOP RUN ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -452,7 +464,6 @@ export default function RunPage() {
       isNewPersonalBest: false,
     };
 
-    // Set state theo thứ tự rõ ràng để modal hiện ngay
     setIsRunning(false);
     setRunResult(initialResult);
     setShowResult(true);
@@ -798,7 +809,7 @@ export default function RunPage() {
 
               <div className="text-center">
                 {runResult.rankInRegionToday === -1 || runResult.maxSpeed < 40 ? (
-                  <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG<br/><span className="text-xl">Lượt thử nghiệm</span></p>
+                  <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG<br/><span className="text-xl">Không lưu dữ liệu</span></p>
                 ) : (
                   <>
                     <p className="text-6xl font-black text-green-400">
