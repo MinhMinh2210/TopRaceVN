@@ -38,7 +38,7 @@ type Package = {
   max_runs: number;
 };
 
-// ==================== OPTIMIZED REGION DETECTION (VŨ TRỤ LEVEL) ====================
+// ==================== OPTIMIZED REGION DETECTION ====================
 const VIETNAM_REGIONS = [
   { name: 'TP.HCM', latMin: 10.4, latMax: 11.2, lngMin: 106.2, lngMax: 107.1 },
   { name: 'Hà Nội', latMin: 20.8, latMax: 21.4, lngMin: 105.5, lngMax: 106.2 },
@@ -130,6 +130,7 @@ export default function RunPage() {
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
   const [freeRunsUsed, setFreeRunsUsed] = useState(0);
   const [hasActiveSub, setHasActiveSub] = useState(false);
@@ -184,7 +185,7 @@ export default function RunPage() {
   const lastSpeedUpdateRef = useRef(0);
   const maxSpeedRef = useRef(0);
 
-  // ==================== DEVICE MOTION & FUSED SPEED (giữ nguyên) ====================
+  // ==================== DEVICE MOTION & FUSED SPEED ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
     if (event.acceleration) {
       accelerationRef.current = { x: event.acceleration.x ?? 0, y: event.acceleration.y ?? 0, z: event.acceleration.z ?? 0 };
@@ -243,48 +244,26 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== LAZY PACKAGES (TIẾT KIỆM 1 EDGE REQUEST) ====================
+  // ==================== LAZY PACKAGES ====================
   const loadPackages = useCallback(async () => {
     if (packages.length > 0) return;
-    try {
-      const { data: pkgData } = await supabase
-        .from('packages')
-        .select('*')
-        .eq('is_active', true)
-        .order('price');
-      setPackages(pkgData || []);
-    } catch (err) {
-      console.error('❌ Load packages failed', err);
-    }
+    const { data } = await supabase.from('packages').select('*').eq('is_active', true).order('price');
+    setPackages(data || []);
   }, [packages.length]);
 
-  // ==================== REFRESH USER DATA (Promise.all) ====================
+  // ==================== REFRESH USER DATA ====================
   const refreshUserData = useCallback(async () => {
     if (!user?.id) return;
-    try {
-      const [{ data: profile }, { data: sub }] = await Promise.all([
-        supabase
-          .from('profiles')
-          .select('free_runs_used, nickname')
-          .eq('id', user.id)
-          .single(),
-        supabase
-          .from('user_subscriptions')
-          .select('remaining_runs')
-          .eq('user_id', user.id)
-          .eq('status', 'active')
-          .gte('end_date', new Date().toISOString())
-          .maybeSingle()
-      ]);
+    const [{ data: profile }, { data: sub }] = await Promise.all([
+      supabase.from('profiles').select('free_runs_used, nickname').eq('id', user.id).single(),
+      supabase.from('user_subscriptions').select('remaining_runs').eq('user_id', user.id).eq('status', 'active').gte('end_date', new Date().toISOString()).maybeSingle()
+    ]);
 
-      if (profile) {
-        setFreeRunsUsed(profile.free_runs_used || 0);
-        setNickname(profile.nickname || 'user');
-      }
-      setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
-    } catch (err) {
-      console.error('❌ Refresh user data failed', err);
+    if (profile) {
+      setFreeRunsUsed(profile.free_runs_used || 0);
+      setNickname(profile.nickname || 'user');
     }
+    setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
   }, [user]);
 
   // ==================== INIT ====================
@@ -292,13 +271,18 @@ export default function RunPage() {
     const init = async () => {
       const u = await getCurrentUser();
       setUser(u);
-      if (!u) return setIsAuthLoading(false);
+      if (!u) {
+        setIsAuthLoading(false);
+        setIsDataLoaded(true);
+        return;
+      }
 
       const { data: vData } = await supabase.from('vehicles').select('*').eq('user_id', u.id);
       setVehicles(vData ?? []);
       if (vData?.length) setSelectedVehicle(vData[0]);
 
       await refreshUserData();
+      setIsDataLoaded(true);
       setIsAuthLoading(false);
     };
     init();
@@ -341,7 +325,7 @@ export default function RunPage() {
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting) return;
     if (!canStartRun) {
-      loadPackages(); // lazy load
+      loadPackages();
       setShowBuyModal(true);
       return;
     }
@@ -357,7 +341,6 @@ export default function RunPage() {
   }, [selectedVehicle, isStarting, currentRegion, canStartRun, checkGPS, loadPackages]);
 
   const startCountdown = useCallback(() => {
-    // ... (toàn bộ logic countdown giữ nguyên 100%)
     setIsStarting(true);
     setErrorMessage('');
     setShowResult(false);
@@ -443,13 +426,10 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN - ĐÃ TỐI ƯU EDGE REQUESTS ====================
+  // ==================== STOP RUN (FIX MẤT NÚT + KẾT QUẢ) ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
-    setIsRunning(false);
-    setCountdown(null);
-    setIsStarting(false);
 
     const finalMaxSpeed = maxSpeedRef.current;
 
@@ -472,11 +452,12 @@ export default function RunPage() {
       isNewPersonalBest: false,
     };
 
+    // Set state theo thứ tự rõ ràng để modal hiện ngay
+    setIsRunning(false);
     setRunResult(initialResult);
     setShowResult(true);
     setIsCalculatingRank(true);
 
-    // OPTIMIZED: Dùng user state thay vì gọi lại getCurrentUser() → tiết kiệm 1 edge request
     if (!user || !selectedVehicle) {
       setIsCalculatingRank(false);
       await refreshUserData();
@@ -487,12 +468,8 @@ export default function RunPage() {
 
     if (isTrialRun) {
       const newUsed = freeRunsUsed + 1;
-      const { error: updateError } = await supabase
-        .from('profiles')
-        .update({ free_runs_used: newUsed })
-        .eq('id', user.id);
-
-      if (!updateError) setFreeRunsUsed(newUsed);
+      await supabase.from('profiles').update({ free_runs_used: newUsed }).eq('id', user.id);
+      setFreeRunsUsed(newUsed);
     }
 
     if (!isTrialRun) {
@@ -523,7 +500,7 @@ export default function RunPage() {
             .select(`max_speed, vehicles (vehicle_type)`)
             .eq('region', currentRegion)
             .gte('created_at', today)
-            .limit(500); // an toàn khi scale
+            .limit(500);
 
           const higherCount = (todayRuns || []).filter((run: any) =>
             run.vehicles?.vehicle_type === selectedVehicle?.vehicle_type && run.max_speed > finalMaxSpeed
@@ -561,7 +538,7 @@ export default function RunPage() {
     }
 
     await refreshUserData();
-  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, hasActiveSub, freeRunsUsed, refreshUserData, user]);
+  }, [watchId, stopDeviceMotion, user, selectedVehicle, currentRegion, hasActiveSub, freeRunsUsed, refreshUserData]);
 
   const resetRun = useCallback(() => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
@@ -583,8 +560,6 @@ export default function RunPage() {
     setIsCalculatingRank(false);
     refreshUserData();
   }, [watchId, stopDeviceMotion, refreshUserData]);
-
-  // ... (toàn bộ phần còn lại của component giữ nguyên 100% - downloadResultAsImage, getBigDisplay, openPaymentModal, confirmPayment, copyToClipboard, JSX)
 
   const downloadResultAsImage = useCallback(async () => {
     const card = resultRef.current;
@@ -641,13 +616,12 @@ export default function RunPage() {
     navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
   };
 
-  // ==================== GIAO DIỆN (GIỮ NGUYÊN 100%) ====================
-  if (isAuthLoading) {
-    return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang kiểm tra đăng nhập...</div>;
+  // ==================== RENDER ====================
+  if (isAuthLoading || !isDataLoaded) {
+    return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang tải dữ liệu người dùng...</div>;
   }
 
   if (!user) {
-    // ... (login screen giữ nguyên)
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
         <Card className="w-full max-w-md bg-zinc-900 border-zinc-800">
@@ -672,7 +646,6 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-      {/* Banner và UI giữ nguyên hoàn toàn, chỉ thay onClick mở modal mua gói */}
       {!canStartRun && (
         <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
@@ -694,7 +667,6 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* CARD TỐC ĐỘ LIVE - giữ nguyên */}
       <Card className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
         <CardContent className="p-10 text-center">
           <p className="text-zinc-400 text-base mb-3">SPEED</p>
@@ -707,7 +679,6 @@ export default function RunPage() {
         </CardContent>
       </Card>
 
-      {/* GPS STATUS - giữ nguyên */}
       <div className="bg-zinc-900 border border-zinc-700 rounded-3xl p-6 text-sm space-y-3">
         <div className="flex justify-between items-center">
           <span className="text-zinc-400">Khu vực:</span>
@@ -745,7 +716,6 @@ export default function RunPage() {
                 : 'bg-yellow-500 hover:bg-yellow-400 text-black font-bold'
             }`}
           >
-            {/* nội dung button giữ nguyên */}
             {isStarting ? (
               <>Loading</>
             ) : !canStartRun ? (
@@ -772,8 +742,163 @@ export default function RunPage() {
         ) : null}
       </div>
 
-      {/* Chọn xe, Kết quả, Modal mua gói, Thanh toán - GIỮ NGUYÊN HOÀN TOÀN */}
-      {/* (Tôi giữ nguyên toàn bộ phần JSX còn lại của bạn để không thay đổi UI 1 pixel) */}
+      <Dialog>
+        <DialogTrigger asChild>
+          <Button variant="outline" className="w-full mt-3 py-8 text-2xl">
+            <Car className="mr-4 h-7 w-7" />
+            {selectedVehicle ? selectedVehicle.nickname : 'Chọn xe để chạy'}
+          </Button>
+        </DialogTrigger>
+        <DialogContent className="w-[95vw] max-w-[95vw] mx-2 sm:mx-auto sm:max-w-md rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Chọn xe của bạn</DialogTitle>
+            <DialogDescription>Chọn phương tiện để ghi run</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 max-h-80 overflow-auto py-4">
+            {vehicles.map((v) => (
+              <Button key={v.id} variant={selectedVehicle?.id === v.id ? "default" : "outline"} className="w-full justify-start text-2xl py-7" onClick={() => setSelectedVehicle(v)}>
+                {v.nickname} — {v.brand} {v.model}
+              </Button>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {showResult && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[100] p-4">
+          <Card ref={resultRef} className="bg-zinc-900 border-zinc-800 w-full max-w-md mx-auto">
+            <CardContent className="p-8 space-y-6">
+              <div className="flex items-center justify-between">
+                <div className="w-6" />
+                <h2 className="text-3xl font-bold text-green-500 tracking-tight">TopRaceVN</h2>
+                <button onClick={downloadResultAsImage} className="text-zinc-400 hover:text-green-400 transition-colors">
+                  <Download className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="text-center">
+                <p className="text-zinc-400 text-base">Top Speed cao nhất</p>
+                <p className="text-8xl font-black text-green-500 leading-none">{runResult.maxSpeed}</p>
+                <p className="text-zinc-400 text-2xl">km/h</p>
+                <p className="text-xs text-zinc-500 mt-2">{runResult.date}</p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-8 border-t border-zinc-800 pt-8">
+                <div className="text-center">
+                  <p className="text-zinc-400 text-sm">0 - 100 km/h</p>
+                  <p className="text-5xl font-bold text-cyan-400">
+                    {runResult.zeroToHundred > 0 ? `${runResult.zeroToHundred}s` : '--'}
+                  </p>
+                </div>
+                <div className="text-center">
+                  <p className="text-zinc-400 text-sm">Khu vực</p>
+                  <p className="font-medium text-2xl">{runResult.region}</p>
+                </div>
+              </div>
+
+              <div className="text-center">
+                {runResult.rankInRegionToday === -1 || runResult.maxSpeed < 40 ? (
+                  <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG<br/><span className="text-xl">Lượt thử nghiệm</span></p>
+                ) : (
+                  <>
+                    <p className="text-6xl font-black text-green-400">
+                      {isCalculatingRank ? '...' : `#${runResult.rankInRegionToday}`}
+                    </p>
+                    {isCalculatingRank && <p className="text-zinc-500 text-sm mt-1">Đang tính rank...</p>}
+                  </>
+                )}
+              </div>
+
+              <div className="flex gap-4 pt-4">
+                <Button onClick={resetRun} variant="outline" className="flex-1 py-6 text-base">
+                  <RotateCcw className="mr-2 h-5 w-5" />
+                  Again
+                </Button>
+                {runResult.rankInRegionToday !== -1 && runResult.maxSpeed >= 40 && (
+                  <Button onClick={() => window.location.href = '/leaderboard'} className="flex-1 py-6 text-base">
+                    Rank
+                  </Button>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
+        <DialogContent className="w-[95vw] max-w-lg rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-3xl font-black">Chọn gói cước</DialogTitle>
+            <DialogDescription>Bạn đã hết lượt miễn phí. Hãy chọn gói phù hợp</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4 max-h-[60vh] overflow-auto">
+            {packages.map((pkg) => (
+              <Card key={pkg.id} className="bg-zinc-900 border-zinc-700">
+                <CardContent className="p-6 flex justify-between items-center">
+                  <div>
+                    <p className="font-semibold text-xl">{pkg.display_name}</p>
+                    <p className="text-sm text-zinc-400">
+                      {pkg.duration_value} {pkg.duration_type === 'hours' ? 'giờ' : pkg.duration_type === 'days' ? 'ngày' : 'phút'} • {pkg.max_runs} run
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-4xl font-black text-cyan-400">{pkg.price.toLocaleString()}đ</p>
+                    <Button size="sm" className="mt-3" onClick={() => openPaymentModal(pkg)}>Mua ngay</Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Button variant="outline" onClick={() => setShowBuyModal(false)} className="w-full">Đóng</Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
+        <DialogContent className="w-[95vw] max-w-md rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Thanh toán {selectedPackage?.display_name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="bg-zinc-900 rounded-2xl p-5 space-y-5">
+              <div>
+                <Label>Ngân hàng</Label>
+                <Input value="LP BANK" readOnly className="bg-black/50" />
+              </div>
+              <div>
+                <Label>Tên chủ tài khoản</Label>
+                <Input value="NGUYEN BINH MINH" readOnly className="bg-black/50" />
+              </div>
+              <div>
+                <Label>Số tài khoản</Label>
+                <div className="flex gap-2">
+                  <Input value="44405006666" readOnly className="bg-black/50 font-mono" />
+                  <Button onClick={() => copyToClipboard('44405006666')}>Copy</Button>
+                </div>
+              </div>
+              <div>
+                <Label>Nội dung chuyển khoản</Label>
+                <div className="flex gap-2 bg-black/50 p-3 rounded-xl items-center">
+                  <span className="font-mono flex-1 break-all">
+                    {nickname}_{selectedPackage?.name}
+                  </span>
+                  <Button size="sm" onClick={() => copyToClipboard(`${nickname}_${selectedPackage?.name}`)}>
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+              <div className="text-center text-4xl font-black text-cyan-400">
+                {selectedPackage?.price.toLocaleString()}đ
+              </div>
+            </div>
+
+            <Button onClick={confirmPayment} disabled={isConfirmingPayment} className="w-full py-7 text-lg bg-green-600 hover:bg-green-700">
+              {isConfirmingPayment ? 'Đang gửi yêu cầu...' : 'Tôi đã chuyển khoản'}
+            </Button>
+
+            <Button variant="outline" onClick={() => setShowPaymentModal(false)} className="w-full">Đóng</Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <div className="text-center py-20">
         <h1 className="text-[2.8rem] md:text-[3.2rem] font-black leading-none tracking-tighter">
