@@ -57,7 +57,7 @@ export default function MyProfilePage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedRun, setSelectedRun] = useState<RunHistory | null>(null);
 
-  // ==================== INIT AUTH + LOAD ALL DATA ====================
+  // ==================== LOAD ALL DATA (PARALLEL + LIMIT 3 RUN) ====================
   const loadAllData = useCallback(async () => {
     const currentUser = await getCurrentUser();
     setUser(currentUser);
@@ -67,65 +67,36 @@ export default function MyProfilePage() {
       return;
     }
 
-    // Load profile
-    const { data: prof } = await supabase
-      .from('profiles')
-      .select('nickname, full_name, avatar_url, bio')
-      .eq('id', currentUser.id)
-      .single();
-
-    setProfile(prof);
-    setEditForm(prof || { nickname: '', full_name: '', avatar_url: '', bio: '' });
-
-    // Load vehicles
-    const { data: veh } = await supabase
-      .from('vehicles')
-      .select('*')
-      .eq('user_id', currentUser.id);
-    setVehicles(veh || []);
-
-    // Load run history
-    const { data: history } = await supabase
-      .from('runs')
-      .select(`
-        id,
-        max_speed,
-        zero_to_hundred,
-        created_at,
-        region,
+    // Fetch parallel để tiết kiệm Edge Requests
+    const [profileRes, vehiclesRes, runsRes, statsRes, bestRes] = await Promise.all([
+      supabase.from('profiles').select('nickname, full_name, avatar_url, bio').eq('id', currentUser.id).single(),
+      supabase.from('vehicles').select('*').eq('user_id', currentUser.id),
+      supabase.from('runs').select(`
+        id, max_speed, zero_to_hundred, created_at, region,
         vehicles (nickname, vehicle_type)
-      `)
-      .eq('user_id', currentUser.id)
-      .order('created_at', { ascending: false })
-      .limit(10);
+      `).eq('user_id', currentUser.id).order('created_at', { ascending: false }).limit(3),
+      supabase.from('runs').select('*', { count: 'exact' }).eq('user_id', currentUser.id),
+      supabase.from('runs').select('max_speed').eq('user_id', currentUser.id).order('max_speed', { ascending: false }).limit(1),
+    ]);
 
-    const formatted = (history || []).map((r: any) => ({
+    setProfile(profileRes.data);
+    setEditForm(profileRes.data || { nickname: '', full_name: '', avatar_url: '', bio: '' });
+    setVehicles(vehiclesRes.data || []);
+
+    const formattedRuns = (runsRes.data || []).map((r: any) => ({
       id: r.id,
       max_speed: r.max_speed,
       zero_to_hundred: r.zero_to_hundred,
       created_at: r.created_at,
       region: r.region || 'Không xác định',
-      vehicles: r.vehicles || null,           // ← Fix: hiển thị đúng tên xe
+      vehicles: r.vehicles || null,
     }));
-
-    setRunsHistory(formatted);
+    setRunsHistory(formattedRuns);
 
     // Stats
-    const { count } = await supabase
-      .from('runs')
-      .select('*', { count: 'exact' })
-      .eq('user_id', currentUser.id);
+    const runCount = statsRes.count || 0;
+    const bestSpeed = bestRes.data?.[0]?.max_speed || 0;
 
-    const { data: best } = await supabase
-      .from('runs')
-      .select('max_speed')
-      .eq('user_id', currentUser.id)
-      .order('max_speed', { ascending: false })
-      .limit(1);
-
-    const bestSpeed = best?.[0]?.max_speed || 0;
-
-    // Tính rank thực tế
     let rank: string | number = '—';
     if (bestSpeed > 0) {
       const { count: higher } = await supabase
@@ -136,7 +107,7 @@ export default function MyProfilePage() {
     }
 
     setStats({
-      runs: count || 0,
+      runs: runCount,
       bestSpeed: bestSpeed,
       rank: rank,
     });
@@ -160,13 +131,19 @@ export default function MyProfilePage() {
     await logout();
   }, []);
 
-  // ==================== AVATAR & PROFILE UPDATE ====================
+  // ==================== AVATAR UPLOAD ≤ 5MB ====================
   const handleAvatarChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      setAvatarFile(file);
-      setPreviewUrl(URL.createObjectURL(file));
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('Ảnh đại diện không được vượt quá 5MB!');
+      e.target.value = '';
+      return;
     }
+
+    setAvatarFile(file);
+    setPreviewUrl(URL.createObjectURL(file));
   }, []);
 
   const handleUpdateProfile = useCallback(async () => {
@@ -177,6 +154,7 @@ export default function MyProfilePage() {
     if (avatarFile) {
       const fileExt = avatarFile.name.split('.').pop();
       const fileName = `${user.id}-${Date.now()}.${fileExt}`;
+
       await supabase.storage.from('avatars').upload(fileName, avatarFile, { upsert: true });
       const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
       avatarUrl = data.publicUrl;
@@ -199,13 +177,13 @@ export default function MyProfilePage() {
   }, [user, editForm, avatarFile]);
 
   // ==================== LOADING AUTH ====================
-if (isAuthLoading) {
-  return (
-    <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
-      Đang kiểm tra đăng nhập...
-    </div>
-  );
-}
+  if (isAuthLoading) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
+        Đang kiểm tra đăng nhập...
+      </div>
+    );
+  }
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
@@ -219,19 +197,12 @@ if (isAuthLoading) {
             <h1 className="text-3xl font-black mb-2">Chào mừng trở lại!</h1>
             <p className="text-zinc-400 mb-8">Đăng nhập để xem profile và lịch sử Run của bạn</p>
 
-            <Button
-              onClick={handleGoogleLogin}
-              className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
-            >
+            <Button onClick={handleGoogleLogin} className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3">
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Google Login
             </Button>
 
-            <Button
-              variant="outline"
-              className="w-full mt-4 py-6 text-base"
-              onClick={() => window.location.href = '/'}
-            >
+            <Button variant="outline" className="w-full mt-4 py-6 text-base" onClick={() => window.location.href = '/'}>
               ← Quay về trang chủ
             </Button>
           </CardContent>
@@ -246,7 +217,6 @@ if (isAuthLoading) {
   return (
     <div className="space-y-6 pb-20 px-4 max-w-2xl mx-auto">
       <div className="flex flex-col items-center text-center pt-4">
-        {/* Avatar với badge top 1-2-3 */}
         <div className="relative">
           <Avatar className="w-28 h-28 mb-4 border-4 border-green-500">
             <AvatarImage src={profile?.avatar_url || ''} />
@@ -255,7 +225,6 @@ if (isAuthLoading) {
             </AvatarFallback>
           </Avatar>
 
-          {/* Badge top 1-2-3 - góc dưới phải */}
           {isTopRank && (
             <div className="absolute bottom-1 right-1 bg-gradient-to-br from-yellow-400 to-amber-500 text-black text-xs font-bold px-3 py-0.5 rounded-2xl shadow-2xl shadow-yellow-500/50 flex items-center gap-1 border-2 border-white">
               <Trophy className="w-3 h-3" />
@@ -274,6 +243,7 @@ if (isAuthLoading) {
         </Button>
       </div>
 
+      {/* Xe của tôi */}
       <Card className="bg-zinc-900 border-zinc-800">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -297,6 +267,7 @@ if (isAuthLoading) {
         </CardContent>
       </Card>
 
+      {/* Thống kê */}
       <Card className="bg-zinc-900 border-zinc-800">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -322,6 +293,7 @@ if (isAuthLoading) {
         </CardContent>
       </Card>
 
+      {/* Lịch sử Run - chỉ 3 lần gần nhất */}
       <Card 
         className="bg-zinc-900 border-zinc-800 cursor-pointer hover:bg-zinc-800 transition-colors"
         onClick={() => setHistoryOpen(true)}
@@ -333,7 +305,7 @@ if (isAuthLoading) {
           </CardTitle>
         </CardHeader>
         <CardContent className="text-center text-zinc-400 py-6">
-          Nhấn để xem 10 lần chạy gần nhất của bạn
+          Nhấn để xem 3 lần chạy gần nhất của bạn
         </CardContent>
       </Card>
 
@@ -341,33 +313,33 @@ if (isAuthLoading) {
         <LogOut className="h-5 w-5" /> Đăng xuất
       </Button>
 
-      {/* Dialog Lịch sử Run */}
+      {/* Dialog Lịch sử Run (3 lần gần nhất) */}
       <Dialog open={historyOpen} onOpenChange={setHistoryOpen}>
         <DialogContent className="max-w-2xl w-[95vw] max-h-[85vh]">
           <DialogHeader>
-            <DialogTitle>Lịch sử Run của bạn</DialogTitle>
+            <DialogTitle>Lịch sử Run gần nhất</DialogTitle>
           </DialogHeader>
-          <div className="max-h-[60vh] overflow-auto space-y-3">
+          <div className="max-h-[60vh] overflow-auto space-y-3 py-2">
             {runsHistory.map((run) => (
               <div
                 key={run.id}
-                className="flex justify-between items-center bg-zinc-800 p-4 rounded-2xl cursor-pointer hover:bg-zinc-700"
-                onClick={() => setSelectedRun(run)}
+                className="flex justify-between items-center bg-zinc-800 p-5 rounded-3xl cursor-pointer hover:bg-zinc-700 transition-colors"
+                onClick={() => {
+                  setSelectedRun(run);
+                  setHistoryOpen(false); // đóng history để mở detail rõ ràng hơn
+                }}
               >
                 <div>
-                  <p className="font-medium">
-                    {run.vehicles?.nickname || 'Xe không tên'}
-                  </p>
+                  <p className="font-medium">{run.vehicles?.nickname || 'Xe không tên'}</p>
                   <p className="text-xs text-zinc-400">
                     {new Date(run.created_at).toLocaleString('vi-VN')}
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="text-xl font-bold text-green-400">{run.max_speed} km/h</p>
+                  <p className="text-2xl font-bold text-green-400">{run.max_speed} km/h</p>
                   {run.zero_to_hundred && (
                     <p className="text-xs text-zinc-400">0-100: {run.zero_to_hundred}s</p>
                   )}
-                  <p className="text-xs text-zinc-400">{run.region}</p>
                 </div>
               </div>
             ))}
@@ -375,7 +347,7 @@ if (isAuthLoading) {
         </DialogContent>
       </Dialog>
 
-      {/* Dialog Chi tiết Run */}
+      {/* Dialog Chi tiết Run (full thông số) */}
       <Dialog open={!!selectedRun} onOpenChange={() => setSelectedRun(null)}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -384,23 +356,31 @@ if (isAuthLoading) {
           {selectedRun && (
             <div className="space-y-6 py-4">
               <div className="text-center">
-                <p className="text-6xl font-black text-green-400">{selectedRun.max_speed}</p>
-                <p className="text-zinc-400">km/h</p>
+                <p className="text-7xl font-black text-green-400">{selectedRun.max_speed}</p>
+                <p className="text-zinc-400 text-2xl">km/h</p>
               </div>
+
               {selectedRun.zero_to_hundred && (
-                <div className="text-center">
-                  <p className="text-5xl font-bold text-green-400">{selectedRun.zero_to_hundred}</p>
-                  <p className="text-zinc-400">giây (0-100 km/h)</p>
+                <div className="grid grid-cols-2 gap-6 text-center border-t border-zinc-700 pt-6">
+                  <div>
+                    <p className="text-zinc-400">0 - 100 km/h</p>
+                    <p className="text-5xl font-bold text-cyan-400">{selectedRun.zero_to_hundred}s</p>
+                  </div>
+                  <div>
+                    <p className="text-zinc-400">Khu vực</p>
+                    <p className="font-medium text-2xl">{selectedRun.region}</p>
+                  </div>
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-4 text-sm border-t border-zinc-700 pt-6">
-                <div>
-                  <p className="text-zinc-400">Thời gian</p>
-                  <p className="font-medium">{new Date(selectedRun.created_at).toLocaleString('vi-VN')}</p>
+
+              <div className="text-sm border-t border-zinc-700 pt-6 space-y-4">
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Thời gian</span>
+                  <span className="font-medium">{new Date(selectedRun.created_at).toLocaleString('vi-VN')}</span>
                 </div>
-                <div>
-                  <p className="text-zinc-400">Khu vực</p>
-                  <p className="font-medium">{selectedRun.region}</p>
+                <div className="flex justify-between">
+                  <span className="text-zinc-400">Xe</span>
+                  <span className="font-medium">{selectedRun.vehicles?.nickname || 'Không có'}</span>
                 </div>
               </div>
             </div>
@@ -416,7 +396,7 @@ if (isAuthLoading) {
           </DialogHeader>
           <div className="space-y-6 py-4">
             <div>
-              <Label>Ảnh đại diện</Label>
+              <Label>Ảnh đại diện (tối đa 5MB)</Label>
               <Input type="file" accept="image/*" onChange={handleAvatarChange} className="h-12" />
               {previewUrl && <img src={previewUrl} alt="preview" className="mt-4 w-20 h-20 object-cover rounded-xl" />}
             </div>
@@ -439,6 +419,7 @@ if (isAuthLoading) {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
       <DonateModal />
     </div>
   );

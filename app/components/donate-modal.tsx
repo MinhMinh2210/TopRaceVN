@@ -20,7 +20,7 @@ export default function DonateModal() {
     const now = Date.now();
 
     // Hiện mỗi lần vào tab, nhưng cách nhau ít nhất 30 phút (tránh reload liên tục)
-    if (!lastShown || now - parseInt(lastShown) > 5 * 60 * 1000) {
+    if (!lastShown || now - parseInt(lastShown) > 720 * 60 * 1000) {
       setIsOpen(true);
       localStorage.setItem('donateModalLastShown', now.toString());
     }
