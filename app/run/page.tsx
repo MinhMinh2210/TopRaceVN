@@ -423,7 +423,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN - LUÔN TRỪ LƯỢT (kể cả 0km/h) ====================
+  // ==================== STOP RUN - ĐÃ FIX THEO YÊU CẦU ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -463,26 +463,10 @@ export default function RunPage() {
       return;
     }
 
-    await supabase.from('runs').insert({
-      user_id: currentUser.id,
-      vehicle_id: selectedVehicle.id,
-      max_speed: finalMaxSpeed,
-      zero_to_sixty: null,
-      zero_to_hundred: zeroToHundred,
-      distance_to_max_speed: null,
-      gps_data: [],
-      start_lat: null,
-      start_lng: null,
-      end_lat: null,
-      end_lng: null,
-      region: currentRegion,
-      gps_accuracy: 'Good',
-      is_low_accuracy: false,
-      ai_analysis: null,
-      ai_verified: false,
-    });
+    const isTrialRun = !hasActiveSub;   // ← 2 lượt thử
 
-    if (!hasActiveSub) {
+    // LUÔN trừ lượt cho 2 lần thử
+    if (isTrialRun) {
       const newUsed = freeRunsUsed + 1;
       const { error: updateError } = await supabase
         .from('profiles')
@@ -492,46 +476,73 @@ export default function RunPage() {
       if (!updateError) setFreeRunsUsed(newUsed);
     }
 
-    const processInBackground = async () => {
-      try {
-        const today = new Date().toISOString().split('T')[0];
-        const { data: todayRuns } = await supabase
-          .from('runs')
-          .select(`max_speed, vehicles (vehicle_type)`)
-          .eq('region', currentRegion)
-          .gte('created_at', today);
+    // CHỈ lưu vào runs + tính rank khi KHÔNG phải lượt thử
+    if (!isTrialRun) {
+      await supabase.from('runs').insert({
+        user_id: currentUser.id,
+        vehicle_id: selectedVehicle.id,
+        max_speed: finalMaxSpeed,
+        zero_to_sixty: null,
+        zero_to_hundred: zeroToHundred,
+        distance_to_max_speed: null,
+        gps_data: [],
+        start_lat: null,
+        start_lng: null,
+        end_lat: null,
+        end_lng: null,
+        region: currentRegion,
+        gps_accuracy: 'Good',
+        is_low_accuracy: false,
+        ai_analysis: null,
+        ai_verified: false,
+      });
 
-        const higherCount = (todayRuns || []).filter((run: any) =>
-          run.vehicles?.vehicle_type === selectedVehicle?.vehicle_type && run.max_speed > finalMaxSpeed
-        ).length;
+      // Background rank (chỉ khi không phải trial)
+      const processInBackground = async () => {
+        try {
+          const today = new Date().toISOString().split('T')[0];
+          const { data: todayRuns } = await supabase
+            .from('runs')
+            .select(`max_speed, vehicles (vehicle_type)`)
+            .eq('region', currentRegion)
+            .gte('created_at', today);
 
-        const rankInRegionToday = higherCount + 1;
+          const higherCount = (todayRuns || []).filter((run: any) =>
+            run.vehicles?.vehicle_type === selectedVehicle?.vehicle_type && run.max_speed > finalMaxSpeed
+          ).length;
 
-        const { data: prevBest } = await supabase
-          .from('runs')
-          .select('max_speed')
-          .eq('user_id', currentUser.id)
-          .order('max_speed', { ascending: false })
-          .limit(1);
+          const rankInRegionToday = higherCount + 1;
 
-        const previousMax = prevBest?.[0]?.max_speed || 0;
-        const isNewPersonalBest = finalMaxSpeed > previousMax;
-        const personalBestImprovement = isNewPersonalBest ? parseFloat((finalMaxSpeed - previousMax).toFixed(1)) : 0;
+          const { data: prevBest } = await supabase
+            .from('runs')
+            .select('max_speed')
+            .eq('user_id', currentUser.id)
+            .order('max_speed', { ascending: false })
+            .limit(1);
 
-        setRunResult(prev => ({
-          ...prev,
-          rankInRegionToday,
-          personalBestImprovement,
-          isNewPersonalBest,
-        }));
-      } catch (err) {
-        console.error(err);
-      } finally {
-        setIsCalculatingRank(false);
-      }
-    };
+          const previousMax = prevBest?.[0]?.max_speed || 0;
+          const isNewPersonalBest = finalMaxSpeed > previousMax;
+          const personalBestImprovement = isNewPersonalBest ? parseFloat((finalMaxSpeed - previousMax).toFixed(1)) : 0;
 
-    processInBackground();
+          setRunResult(prev => ({
+            ...prev,
+            rankInRegionToday,
+            personalBestImprovement,
+            isNewPersonalBest,
+          }));
+        } catch (err) {
+          console.error(err);
+        } finally {
+          setIsCalculatingRank(false);
+        }
+      };
+      processInBackground();
+    } else {
+      // Lượt thử → không lưu rank
+      setRunResult(prev => ({ ...prev, rankInRegionToday: -1 }));
+      setIsCalculatingRank(false);
+    }
+
     await refreshUserData();
   }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, hasActiveSub, freeRunsUsed, refreshUserData]);
 
@@ -642,7 +653,6 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-      {/* BANNER HẾT LƯỢT (giữ nguyên) */}
       {!canStartRun && (
         <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
@@ -654,15 +664,13 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* === BANNER MỚI: 2 LẦN THỬ NGHIỆM GPS === */}
+      {/* BANNER 2 LẦN THỬ */}
       {!hasActiveSub && freeRunsUsed < 2 && (
         <div className="bg-sky-900/30 border border-sky-400 text-sky-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
           <div className="flex-1">
             <p className="font-semibold">Bạn có 2 lần bấm GPS trải nghiệm</p>
-            <p className="text-sm">
-              Sẽ không lưu vào bảng rank. Muốn đua top hãy thử 2 lần và mua gói leo rank
-            </p>
+            <p className="text-sm">Sẽ không lưu vào bảng rank. Muốn đua top hãy thử 2 lần và mua gói leo rank</p>
           </div>
         </div>
       )}
@@ -715,7 +723,7 @@ export default function RunPage() {
                 ? 'bg-zinc-700 text-zinc-400 cursor-not-allowed'
                 : hasActiveSub
                 ? 'bg-green-600 hover:bg-green-700'
-                : 'bg-yellow-500 hover:bg-yellow-400 text-black font-bold' // ← NÚT MÀU VÀNG CHO 2 LẦN THỬ
+                : 'bg-yellow-500 hover:bg-yellow-400 text-black font-bold'
             }`}
           >
             {isStarting ? (
@@ -724,18 +732,15 @@ export default function RunPage() {
               <>Mua gói để chạy</>
             ) : hasActiveSub ? (
               <>
-                <Play className="mr-6 h-10 w-10" />
-                START
+                <Play className="mr-6 h-10 w-10" /> START
               </>
             ) : freeRunsUsed === 1 ? (
               <>
-                <Play className="mr-6 h-10 w-10" />
-                THỬ BẤM - LẦN CUỐI RỒI
+                <Play className="mr-6 h-10 w-10" /> THỬ BẤM - LẦN CUỐI RỒI
               </>
             ) : (
               <>
-                <Play className="mr-6 h-10 w-10" />
-                THỬ BẤM
+                <Play className="mr-6 h-10 w-10" /> THỬ BẤM
               </>
             )}
           </Button>
@@ -804,8 +809,8 @@ export default function RunPage() {
               </div>
 
               <div className="text-center">
-                {runResult.maxSpeed < 40 ? (
-                  <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG</p>
+                {runResult.rankInRegionToday === -1 || runResult.maxSpeed < 40 ? (
+                  <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG<br/><span className="text-xl">Lượt thử nghiệm</span></p>
                 ) : (
                   <>
                     <p className="text-6xl font-black text-green-400">
@@ -821,7 +826,7 @@ export default function RunPage() {
                   <RotateCcw className="mr-2 h-5 w-5" />
                   Again
                 </Button>
-                {runResult.maxSpeed >= 40 && (
+                {runResult.rankInRegionToday !== -1 && runResult.maxSpeed >= 40 && (
                   <Button onClick={() => window.location.href = '/leaderboard'} className="flex-1 py-6 text-base">
                     Rank
                   </Button>
@@ -832,7 +837,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* MODAL GÓI CƯỚC + THANH TOÁN (giữ nguyên) */}
+      {/* MODAL GÓI + THANH TOÁN (giữ nguyên) */}
       <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
         <DialogContent className="w-[95vw] max-w-lg rounded-3xl">
           <DialogHeader>
