@@ -7,14 +7,21 @@ import { AppSidebar } from '@/app/components/app-sidebar';
 import { MobileBottomNav } from '@/app/components/mobile-bottom-nav';
 import DonateModal from '@/app/components/donate-modal';
 
-const inter = Inter({ subsets: ['latin', 'vietnamese'] });
+const inter = Inter({ 
+  subsets: ['latin', 'vietnamese'],
+  display: 'swap',
+});
 
 export const metadata: Metadata = {
   title: 'TopRaceVN - Sân chơi rank tốc độ xe',
-  description: 'Chạy thật - Đo thật - Rank thật',
+  description: 'Chạy thật - Đo thật - Rank thật | GPS chính xác • Bảng xếp hạng toàn quốc',
   viewport: 'width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no',
   manifest: '/manifest.json',
   themeColor: '#22c55e',
+  icons: {
+    icon: '/favicon.ico',
+    apple: '/apple-touch-icon.png',
+  },
 };
 
 export default function RootLayout({
@@ -33,7 +40,7 @@ export default function RootLayout({
         <meta name="msapplication-TileColor" content="#22c55e" />
       </head>
 
-      <body className={`${inter.className} bg-zinc-950 text-white`}>
+      <body className={`${inter.className} bg-zinc-950 text-white antialiased`}>
         <SidebarProvider>
           <div className="flex h-screen overflow-hidden">
             {/* Sidebar Desktop */}
@@ -41,7 +48,7 @@ export default function RootLayout({
               <AppSidebar />
             </div>
 
-            {/* Main Content */}
+            {/* Main Content Area */}
             <div className="flex-1 flex flex-col overflow-hidden">
               {/* Header Mobile */}
               <header className="h-14 md:hidden border-b border-zinc-800 bg-zinc-950 flex items-center px-4 z-50">
@@ -53,20 +60,22 @@ export default function RootLayout({
                 </div>
               </header>
 
-              {/* Page Content - ĐÃ FIX */}
+              {/* Page Content */}
               <main className="flex-1 min-h-0 overflow-auto pb-20 md:pb-6 px-2 md:px-6 py-4 md:py-6">
                 {children}
               </main>
 
-              {/* Bottom Nav */}
+              {/* Bottom Navigation (Mobile) */}
               <div className="md:hidden fixed bottom-0 left-0 right-0 z-50">
                 <MobileBottomNav />
               </div>
             </div>
           </div>
         </SidebarProvider>
+
+        {/* Donate Modal - Global (render 1 lần cho toàn app) */}
+        <DonateModal />
       </body>
     </html>
-    
   );
 }

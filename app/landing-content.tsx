@@ -1,10 +1,10 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import Link from 'next/link';
 import { Car, Trophy, Clock, Gauge, User } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 
 type Slide = {
   title: string;
@@ -23,6 +23,7 @@ export default function LandingContent() {
     { title: "CỘNG ĐỒNG RACER", subtitle: "Kết nối - Thi đấu - Thách đấu", icon: <User className="w-12 h-12 text-cyan-400" />, bg: "from-cyan-500 to-blue-600" },
   ], []);
 
+  // ==================== CAROUSEL AUTO SLIDE ====================
   useEffect(() => {
     const interval = setInterval(() => {
       setCurrentSlide((prev) => (prev + 1) % slides.length);
@@ -30,10 +31,11 @@ export default function LandingContent() {
     return () => clearInterval(interval);
   }, [slides.length]);
 
-  const handleGoogleLogin = async () => {
+  // ==================== GOOGLE LOGIN (OPTIMIZED) ====================
+  const handleGoogleLogin = useCallback(async () => {
     const { loginWithGoogle } = await import('@/app/features/auth/login');
     await loginWithGoogle();
-  };
+  }, []);
 
   return (
     <div className="min-h-screen bg-zinc-950 text-white overflow-hidden pb-20">
@@ -91,11 +93,26 @@ export default function LandingContent() {
       </div>
 
       <div className="fixed bottom-0 left-0 right-0 bg-zinc-900 border-t border-zinc-800 py-2 px-6 flex justify-around text-xs text-zinc-400 z-50">
-        <div className="flex flex-col items-center text-green-500"><Car className="w-6 h-6" /><span className="mt-1">Trang chủ</span></div>
-        <div className="flex flex-col items-center"><Clock className="w-6 h-6" /><span className="mt-1">Run</span></div>
-        <div className="flex flex-col items-center"><Car className="w-6 h-6" /><span className="mt-1">Xe</span></div>
-        <div className="flex flex-col items-center"><Trophy className="w-6 h-6" /><span className="mt-1">Rank</span></div>
-        <div className="flex flex-col items-center"><User className="w-6 h-6" /><span className="mt-1">Tôi</span></div>
+        <div className="flex flex-col items-center text-green-500">
+          <Car className="w-6 h-6" />
+          <span className="mt-1">Trang chủ</span>
+        </div>
+        <div className="flex flex-col items-center">
+          <Clock className="w-6 h-6" />
+          <span className="mt-1">Run</span>
+        </div>
+        <div className="flex flex-col items-center">
+          <Car className="w-6 h-6" />
+          <span className="mt-1">Xe</span>
+        </div>
+        <div className="flex flex-col items-center">
+          <Trophy className="w-6 h-6" />
+          <span className="mt-1">Rank</span>
+        </div>
+        <div className="flex flex-col items-center">
+          <User className="w-6 h-6" />
+          <span className="mt-1">Tôi</span>
+        </div>
       </div>
     </div>
   );

@@ -36,6 +36,7 @@ export default function VehiclesPage() {
   const [user, setUser] = useState<any>(null);
   const [vehicles, setVehicles] = useState<Vehicle[]>([]);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
 
   const [open, setOpen] = useState(false);
@@ -50,13 +51,14 @@ export default function VehiclesPage() {
     mod_level: 'Stock',
   });
 
-  // ==================== INIT AUTH + LOAD VEHICLES ====================
+  // ==================== LOAD DATA (1 LẦN DUY NHẤT) ====================
   const loadData = useCallback(async () => {
     const u = await getCurrentUser();
     setUser(u);
 
     if (!u) {
       setIsAuthLoading(false);
+      setIsDataLoaded(true);
       return;
     }
 
@@ -70,6 +72,7 @@ export default function VehiclesPage() {
     setVehicles(data || []);
     setLoading(false);
     setIsAuthLoading(false);
+    setIsDataLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -136,12 +139,7 @@ export default function VehiclesPage() {
         .eq('id', editingVehicle.id);
 
       if (!error) {
-        const { data } = await supabase
-          .from('vehicles')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-        setVehicles(data || []);
+        await loadData(); // refresh list
         setOpen(false);
       } else alert('Lỗi: ' + error.message);
     } else {
@@ -151,16 +149,12 @@ export default function VehiclesPage() {
       });
 
       if (!error) {
-        const { data } = await supabase
-          .from('vehicles')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false });
-        setVehicles(data || []);
+        await loadData(); // refresh list
         setOpen(false);
       } else alert('Lỗi: ' + error.message);
     }
 
+    // Reset form
     setForm({
       nickname: '',
       brand: '',
@@ -171,27 +165,27 @@ export default function VehiclesPage() {
     });
     setEditingVehicle(null);
     setLoading(false);
-  }, [user, form, editingVehicle]);
+  }, [user, form, editingVehicle, loadData]);
 
   const handleDeleteVehicle = useCallback(async (id: number) => {
     if (!confirm('Bạn có chắc muốn xóa xe này không?')) return;
 
     const { error } = await supabase.from('vehicles').delete().eq('id', id);
     if (!error) {
-      setVehicles(vehicles.filter(v => v.id !== id));
+      setVehicles((prev) => prev.filter((v) => v.id !== id));
     } else {
       alert('Lỗi khi xóa: ' + error.message);
     }
-  }, [vehicles]);
+  }, []);
 
-  // ==================== LOADING AUTH ====================
-if (isAuthLoading) {
-  return (
-    <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
-      Đang kiểm tra đăng nhập...
-    </div>
-  );
-}
+  // ==================== LOADING ====================
+  if (isAuthLoading || !isDataLoaded) {
+    return (
+      <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
+        Đang tải danh sách xe...
+      </div>
+    );
+  }
 
   // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
@@ -203,7 +197,7 @@ if (isAuthLoading) {
               <Car className="w-10 h-10 text-green-500" />
             </div>
             <h1 className="text-3xl font-black mb-2">Xe của tôi</h1>
-            <p className="text-zinc-400 mb-8">Đăng nhập để bắt đầu ghi tốc độ và lưu kết quả</p>
+            <p className="text-zinc-400 mb-8">Đăng nhập để quản lý xe và ghi run</p>
             <Button
               onClick={handleGoogleLogin}
               className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
@@ -221,11 +215,7 @@ if (isAuthLoading) {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP - DANH SÁCH XE ====================
-  if (loading) {
-    return <div className="text-center py-20 text-zinc-400">Đang tải danh sách xe...</div>;
-  }
-
+  // ==================== ĐÃ ĐĂNG NHẬP ====================
   return (
     <div className="space-y-6 pb-20 px-4">
       <h1 className="text-3xl font-black">Xe của tôi</h1>
@@ -307,7 +297,6 @@ if (isAuthLoading) {
             </DialogHeader>
 
             <div className="space-y-6 py-2">
-              {/* Nickname */}
               <div>
                 <Label className="flex items-center gap-1 text-base font-medium">
                   Nickname xe <span className="text-red-500">*</span>
@@ -320,7 +309,6 @@ if (isAuthLoading) {
                 />
               </div>
 
-              {/* Hãng xe + Model */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-base font-medium">Hãng xe</Label>
@@ -342,7 +330,6 @@ if (isAuthLoading) {
                 </div>
               </div>
 
-              {/* Loại xe */}
               <div>
                 <Label className="text-base font-medium">Loại xe</Label>
                 <Select value={form.vehicle_type} onValueChange={(v) => setForm({ ...form, vehicle_type: v as any })}>
@@ -359,7 +346,6 @@ if (isAuthLoading) {
                 </Select>
               </div>
 
-              {/* Năm sản xuất + Mức độ độ (đã đổi thành Input tự nhập) */}
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-base font-medium">Năm sản xuất</Label>
@@ -401,6 +387,7 @@ if (isAuthLoading) {
           </DialogContent>
         </Dialog>
       </div>
+
       <DonateModal />
     </div>
   );

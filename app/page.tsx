@@ -40,7 +40,7 @@ export default function Home() {
   const [currentRank, setCurrentRank] = useState<number | null>(null);
   const [runCountToday, setRunCountToday] = useState(0);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
-  const [currentSlide, setCurrentSlide] = useState(0);
+  const [isDataLoaded, setIsDataLoaded] = useState(false);
 
   // ==================== RACER SNAPSHOT ====================
   const [currentRegion, setCurrentRegion] = useState<string>('Đang xác định...');
@@ -48,6 +48,8 @@ export default function Home() {
   const [gpsSatellites, setGpsSatellites] = useState<number>(0);
   const [gpsSignalStatus, setGpsSignalStatus] = useState<string>('Đang kiểm tra');
   const [nearbyZones, setNearbyZones] = useState<NearbyZone[]>([]);
+
+  const [currentSlide, setCurrentSlide] = useState(0);
 
   const slides = [
     { title: "ĐUA TỐC ĐỘ THẬT", subtitle: "GPS chính xác • Rank toàn quốc", icon: <Gauge className="w-12 h-12 text-green-500" />, bg: "from-green-600 to-emerald-700" },
@@ -64,85 +66,70 @@ export default function Home() {
     return () => clearInterval(interval);
   }, []);
 
-  // ==================== TỐI ƯU: INIT DATA (PARALLEL QUERIES) ====================
+  // ==================== INIT DATA (PARALLEL + OPTIMIZED) ====================
   const init = useCallback(async () => {
     const u = await getCurrentUser();
     setUser(u);
 
     if (!u) {
       setIsAuthLoading(false);
+      setIsDataLoaded(true);
       return;
     }
 
     const userId = u.id;
     const today = new Date().toISOString().split('T')[0];
 
-    // 🔥 TỐI ƯU: Chạy tất cả query song song để giảm thời gian chờ và số round-trip
+    // Parallel queries
     const [
-      vehicleData,
-      bestRunData,
-      rankResult,
-      todayCountResult,
-      snapData,
-      hotspotsData
+      vehicleRes,
+      bestRunRes,
+      todayCountRes,
+      snapshotRes,
+      hotspotsRes
     ] = await Promise.all([
-      // 1. Vehicle
       supabase.from('vehicles').select('*').eq('user_id', userId).limit(1).single(),
-
-      // 2. Best run
       supabase.from('runs').select('max_speed, zero_to_hundred, region')
         .eq('user_id', userId).order('max_speed', { ascending: false }).limit(1).single(),
-
-      // 3. Global rank (nặng nhất, giữ nguyên logic)
-      supabase.from('runs').select('*', { count: 'exact', head: true })
-        .gt('max_speed', bestRun?.max_speed || 0), // note: bestRun chưa có nên sẽ dùng fallback
-
-      // 4. Run hôm nay
       supabase.from('runs').select('*', { count: 'exact', head: true })
         .eq('user_id', userId).gte('created_at', today),
-
-      // 5. Racer snapshot
       supabase.from('racer_snapshots').select('current_region, peak_g_force, gps_satellites, gps_signal_status')
         .eq('user_id', userId).single(),
-
-      // 6. Hot zones hôm nay
       supabase.from('region_daily_hotspots').select('zone_name, top_speed, peak_g_force')
-        .eq('region', bestRun?.region || 'TP.HCM')
         .eq('snapshot_date', today)
         .order('top_speed', { ascending: false })
         .limit(3),
     ]);
 
-    // Set data
-    setVehicle(vehicleData.data || null);
-    setBestRun(bestRunData.data || null);
+    setVehicle(vehicleRes.data || null);
+    setBestRun(bestRunRes.data || null);
+    setRunCountToday(todayCountRes.count || 0);
 
-    if (bestRunData.data?.max_speed) {
-      // Tính rank lại một lần nữa vì bestRunData đã có
-      const { count } = await supabase.from('runs')
+    // Tính rank sau khi có bestRun
+    if (bestRunRes.data?.max_speed) {
+      const { count } = await supabase
+        .from('runs')
         .select('*', { count: 'exact', head: true })
-        .gt('max_speed', bestRunData.data.max_speed);
+        .gt('max_speed', bestRunRes.data.max_speed);
       setCurrentRank((count || 0) + 1);
     }
 
-    setRunCountToday(todayCountResult.count || 0);
-
     // Racer Snapshot
-    if (snapData.data) {
-      setCurrentRegion(snapData.data.current_region);
-      setPeakGForce(snapData.data.peak_g_force);
-      setGpsSatellites(snapData.data.gps_satellites);
-      setGpsSignalStatus(snapData.data.gps_signal_status);
+    if (snapshotRes.data) {
+      setCurrentRegion(snapshotRes.data.current_region || 'TP.HCM');
+      setPeakGForce(snapshotRes.data.peak_g_force || 1.45);
+      setGpsSatellites(snapshotRes.data.gps_satellites || 16);
+      setGpsSignalStatus(snapshotRes.data.gps_signal_status || 'TÍN HIỆU TỐT');
     } else {
-      setCurrentRegion(bestRunData.data?.region || 'TP.HCM');
+      setCurrentRegion(bestRunRes.data?.region || 'TP.HCM');
       setPeakGForce(1.45);
       setGpsSatellites(16);
       setGpsSignalStatus('TÍN HIỆU TỐT');
     }
 
     // Hot zones
-    if (hotspotsData.data && hotspotsData.data.length > 0) {
-      setNearbyZones(hotspotsData.data.map((h: any) => ({
+    if (hotspotsRes.data && hotspotsRes.data.length > 0) {
+      setNearbyZones(hotspotsRes.data.map((h: any) => ({
         name: h.zone_name,
         topSpeed: h.top_speed,
         gForce: h.peak_g_force,
@@ -156,6 +143,7 @@ export default function Home() {
     }
 
     setIsAuthLoading(false);
+    setIsDataLoaded(true);
   }, []);
 
   useEffect(() => {
@@ -167,16 +155,15 @@ export default function Home() {
   }, []);
 
   // ==================== LOADING & UNAUTH ====================
-  if (isAuthLoading) {
+  if (isAuthLoading || !isDataLoaded) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
-        Đang kiểm tra đăng nhập...
+        Đang tải trang chủ...
       </div>
     );
   }
 
   if (!user) {
-    // Phần chưa đăng nhập giữ nguyên 100%
     return (
       <div className="min-h-screen bg-zinc-950 text-white overflow-hidden pb-20">
         <div className="pt-12 px-6 text-center">
@@ -187,7 +174,6 @@ export default function Home() {
 
         <Card className="bg-zinc-900 border-zinc-800 mx-4 mt-10 max-w-[340px] mx-auto shadow-2xl">
           <CardContent className="p-8">
-            {/* Carousel giữ nguyên */}
             <div className="relative h-[320px] overflow-hidden">
               {slides.map((slide, index) => (
                 <div key={index} className={`absolute inset-0 transition-all duration-700 flex flex-col items-center justify-center text-center px-4 ${index === currentSlide ? 'opacity-100 scale-100' : 'opacity-0 scale-95'}`}>
@@ -251,7 +237,6 @@ export default function Home() {
       <h1 className="text-3xl font-black">VietNam Racingboy</h1>
 
       <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-        {/* Các card giữ nguyên hoàn toàn */}
         <Card className="bg-zinc-900 border-zinc-800">
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 text-base">
@@ -327,9 +312,6 @@ export default function Home() {
           </CardContent>
         </Card>
       </div>
-
-      {/* RACER SNAPSHOT CARD - bạn có thể điền thêm sau */}
-      {/* <Card>...</Card> */}
 
       <DonateModal />
     </div>
