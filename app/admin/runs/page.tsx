@@ -10,7 +10,7 @@ export default function RunsPage() {
   const [runs, setRuns] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
 
-  // ==================== LOAD RUNS (CHỈ KHI ẤN) ====================
+  // ==================== TẢI DANH SÁCH RUN (CHỈ KHI ẤN) ====================
   const loadRuns = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase
@@ -27,17 +27,13 @@ export default function RunsPage() {
     setLoading(false);
   }, []);
 
-  // ==================== DELETE RUN ====================
   const deleteRun = async (id: number) => {
     if (!confirm('Xóa run này?')) return;
 
     const { error } = await supabase.from('runs').delete().eq('id', id);
-    if (error) {
-      alert('Lỗi khi xóa: ' + error.message);
-    } else {
-      alert('✅ Đã xóa run thành công!');
-      // KHÔNG tự load lại → user phải nhấn nút "Tải danh sách Run"
-    }
+    if (error) alert('Lỗi khi xóa: ' + error.message);
+    else alert('✅ Đã xóa run thành công!');
+    // KHÔNG tự load lại
   };
 
   return (

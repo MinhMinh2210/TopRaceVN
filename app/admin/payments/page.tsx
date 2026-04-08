@@ -22,7 +22,7 @@ export default function AdminPaymentsPage() {
   const [loadingPackages, setLoadingPackages] = useState(false);
   const [error, setError] = useState('');
 
-  // ==================== LAZY LOAD FUNCTIONS ====================
+  // ==================== LAZY LOAD ====================
   const loadPendingPayments = useCallback(async () => {
     setLoadingPayments(true);
     setError('');
@@ -41,7 +41,6 @@ export default function AdminPaymentsPage() {
       setPendingPayments(data || []);
     } catch (err: any) {
       setError('Lỗi tải thanh toán: ' + err.message);
-      console.error(err);
     } finally {
       setLoadingPayments(false);
     }
@@ -49,21 +48,14 @@ export default function AdminPaymentsPage() {
 
   const loadUsers = useCallback(async () => {
     setLoadingUsers(true);
-    const { data } = await supabase
-      .from('profiles')
-      .select('id, nickname')
-      .order('nickname');
+    const { data } = await supabase.from('profiles').select('id, nickname').order('nickname');
     setUsers(data || []);
     setLoadingUsers(false);
   }, []);
 
   const loadPackages = useCallback(async () => {
     setLoadingPackages(true);
-    const { data } = await supabase
-      .from('packages')
-      .select('*')
-      .eq('is_active', true)
-      .order('price');
+    const { data } = await supabase.from('packages').select('*').eq('is_active', true).order('price');
     setPackages(data || []);
     setLoadingPackages(false);
   }, []);
@@ -88,13 +80,9 @@ export default function AdminPaymentsPage() {
         status: 'active',
       });
 
-      await supabase
-        .from('payment_logs')
-        .update({ status: 'approved', approved_at: new Date().toISOString() })
-        .eq('id', payment.id);
+      await supabase.from('payment_logs').update({ status: 'approved', approved_at: new Date().toISOString() }).eq('id', payment.id);
 
       alert(`✅ Đã cấp gói ${pkg.display_name} cho ${payment.profiles?.nickname}`);
-      // KHÔNG tự load lại → user phải nhấn nút "Tải danh sách thanh toán"
     } catch (err: any) {
       setError(err.message || 'Lỗi khi cấp gói');
     }
@@ -103,7 +91,6 @@ export default function AdminPaymentsPage() {
   const deletePending = async (id: string) => {
     if (!confirm('Xóa yêu cầu thanh toán này?')) return;
     await supabase.from('payment_logs').delete().eq('id', id);
-    // KHÔNG tự load lại
   };
 
   // ==================== DUYỆT THỦ CÔNG ====================
@@ -111,12 +98,7 @@ export default function AdminPaymentsPage() {
     if (!selectedUserId || !selectedPackageId) return;
 
     try {
-      const { data: pkg } = await supabase
-        .from('packages')
-        .select('*')
-        .eq('id', selectedPackageId)
-        .single();
-
+      const { data: pkg } = await supabase.from('packages').select('*').eq('id', selectedPackageId).single();
       if (!pkg) throw new Error('Không tìm thấy gói');
 
       const endDate = new Date();
@@ -160,9 +142,7 @@ export default function AdminPaymentsPage() {
         </CardHeader>
         <CardContent>
           {pendingPayments.length === 0 ? (
-            <p className="text-zinc-400 py-12 text-center text-lg">
-              Không có yêu cầu thanh toán nào đang chờ
-            </p>
+            <p className="text-zinc-400 py-12 text-center text-lg">Không có yêu cầu thanh toán nào đang chờ</p>
           ) : (
             <div className="space-y-4">
               {pendingPayments.map((p) => (
@@ -179,18 +159,10 @@ export default function AdminPaymentsPage() {
                       </p>
                     </div>
                     <div className="flex gap-3">
-                      <Button
-                        onClick={() => approvePending(p)}
-                        className="bg-green-600 hover:bg-green-700"
-                      >
-                        <CheckCircle className="mr-2 h-4 w-4" />
-                        Cấp gói ngay
+                      <Button onClick={() => approvePending(p)} className="bg-green-600 hover:bg-green-700">
+                        <CheckCircle className="mr-2 h-4 w-4" /> Cấp gói ngay
                       </Button>
-                      <Button
-                        variant="destructive"
-                        size="icon"
-                        onClick={() => deletePending(p.id)}
-                      >
+                      <Button variant="destructive" size="icon" onClick={() => deletePending(p.id)}>
                         <Trash2 className="w-4 h-4" />
                       </Button>
                     </div>
@@ -250,11 +222,7 @@ export default function AdminPaymentsPage() {
             </Select>
           </div>
 
-          <Button
-            onClick={handleApproveManual}
-            disabled={!selectedUserId || !selectedPackageId}
-            className="w-full py-6 text-lg"
-          >
+          <Button onClick={handleApproveManual} disabled={!selectedUserId || !selectedPackageId} className="w-full py-6 text-lg">
             Duyệt & Cấp Gói Ngay
           </Button>
 
