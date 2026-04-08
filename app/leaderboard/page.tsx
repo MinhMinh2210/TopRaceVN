@@ -8,7 +8,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Button } from '@/components/ui/button';
-import { Trophy, Medal, ChevronDown } from 'lucide-react';
+import { Trophy, Medal } from 'lucide-react';
 import DonateModal from '../components/donate-modal';
 
 export default function LeaderboardPage() {
@@ -19,9 +19,6 @@ export default function LeaderboardPage() {
   const [data, setData] = useState<any[]>([]);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [loading, setLoading] = useState(false);
-  const [loadingMore, setLoadingMore] = useState(false);
-  const [page, setPage] = useState(1);
-  const [hasMore, setHasMore] = useState(true);
 
   // ==================== INIT AUTH ====================
   const checkAuth = useCallback(async () => {
@@ -38,23 +35,16 @@ export default function LeaderboardPage() {
   const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin + '/leaderboard' },
+      options: {
+        redirectTo: window.location.origin + '/leaderboard',
+      },
     });
   }, []);
 
-  // ==================== LOAD DATA (10 items/lần) ====================
-  const loadData = useCallback(async (resetPage = false) => {
+  // ==================== LOAD LEADERBOARD DATA (cố định 30 user) ====================
+  const loadData = useCallback(async () => {
     if (!user) return;
-
-    if (resetPage) {
-      setPage(1);
-      setData([]);
-      setHasMore(true);
-    }
-
-    const currentPage = resetPage ? 1 : page;
-    setLoading(resetPage);
-    setLoadingMore(!resetPage);
+    setLoading(true);
 
     let query = supabase
       .from('runs')
@@ -65,74 +55,96 @@ export default function LeaderboardPage() {
         zero_to_hundred,
         region,
         created_at,
-        vehicles (nickname, vehicle_type),
-        profiles!user_id (avatar_url)
+        vehicles (
+          nickname,
+          vehicle_type
+        ),
+        profiles!user_id (
+          avatar_url
+        )
       `)
-      .limit(10)
-      .range((currentPage - 1) * 10, currentPage * 10 - 1);
+      .limit(30);   // ← CỐ ĐỊNH 30 USER
 
     if (regionFilter !== 'all') query = query.eq('region', regionFilter);
-    if (typeFilter !== 'all') query = query.eq('vehicles.vehicle_type', typeFilter);
+
+    if (typeFilter !== 'all') {
+      query = query.eq('vehicles.vehicle_type', typeFilter);
+    }
 
     if (activeTab === 'speed') {
-      query = query.order('max_speed', { ascending: false }).gt('max_speed', 0);
+      query = query
+        .order('max_speed', { ascending: false })
+        .not('max_speed', 'is', null)
+        .gt('max_speed', 0);
     } else {
-      query = query.order('zero_to_hundred', { ascending: true }).gt('zero_to_hundred', 0);
+      query = query
+        .order('zero_to_hundred', { ascending: true })
+        .not('zero_to_hundred', 'is', null)
+        .gt('zero_to_hundred', 0);
     }
 
     const { data: result, error } = await query;
 
     if (error) {
       console.error('Lỗi load leaderboard:', error);
+      setData([]);
       setLoading(false);
-      setLoadingMore(false);
       return;
+    }
+
+    let filteredResult = result || [];
+    if (typeFilter !== 'all') {
+      filteredResult = filteredResult.filter((item: any) => 
+        item.vehicles?.vehicle_type === typeFilter
+      );
     }
 
     // Lấy best record mỗi user
     const bestPerUser = new Map();
-    (result || []).forEach((item: any) => {
+
+    filteredResult.forEach((item: any) => {
       const userId = item.user_id;
       if (!userId) return;
+
       const existing = bestPerUser.get(userId);
+
       if (activeTab === 'speed') {
-        if (!existing || item.max_speed > existing.max_speed) bestPerUser.set(userId, item);
+        if (!existing || item.max_speed > existing.max_speed) {
+          bestPerUser.set(userId, item);
+        }
       } else {
-        if (!existing || item.zero_to_hundred < existing.zero_to_hundred) bestPerUser.set(userId, item);
+        if (!existing || item.zero_to_hundred < existing.zero_to_hundred) {
+          bestPerUser.set(userId, item);
+        }
       }
     });
 
     const bestRecords = Array.from(bestPerUser.values());
 
     const formatted = bestRecords.map((item: any, index: number) => ({
-      rank: (currentPage - 1) * 10 + index + 1,
+      rank: index + 1,
       user_id: item.user_id,
       nickname: item.vehicles?.nickname || 'Không có tên',
       vehicle_type: item.vehicles?.vehicle_type || '',
       avatar_url: item.profiles?.avatar_url || null,
       value: activeTab === 'speed' ? item.max_speed : item.zero_to_hundred,
       region: item.region || 'Không xác định',
+      created_at: item.created_at,
     }));
 
-    if (resetPage) {
-      setData(formatted);
-    } else {
-      setData(prev => [...prev, ...formatted]);
-    }
-
-    setHasMore(formatted.length === 10);
+    setData(formatted);
     setLoading(false);
-    setLoadingMore(false);
-    if (!resetPage) setPage(prev => prev + 1);
-  }, [user, activeTab, regionFilter, typeFilter, page]);
+  }, [user, activeTab, regionFilter, typeFilter]);
 
-  // Load lại khi filter thay đổi
   useEffect(() => {
-    if (user) loadData(true);
-  }, [loadData, user]);
+    if (user) {
+      loadData();
+    }
+  }, [loadData]);
 
   const memoizedData = useMemo(() => data, [data]);
 
+  // ==================== LOADING AUTH ====================
   if (isAuthLoading) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
@@ -141,6 +153,7 @@ export default function LeaderboardPage() {
     );
   }
 
+  // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
@@ -151,11 +164,20 @@ export default function LeaderboardPage() {
             </div>
             <h1 className="text-3xl font-black mb-2">Bảng Xếp Hạng</h1>
             <p className="text-zinc-400 mb-8">Đăng nhập để xem bảng xếp hạng toàn quốc</p>
-            <Button onClick={handleGoogleLogin} className="w-full py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3">
+
+            <Button
+              onClick={handleGoogleLogin}
+              className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
+            >
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Google Login
             </Button>
-            <Button variant="outline" className="w-full mt-4 py-6 text-base" onClick={() => window.location.href = '/'}>
+
+            <Button
+              variant="outline"
+              className="w-full mt-4 py-6 text-base"
+              onClick={() => window.location.href = '/'}
+            >
               ← Quay về trang chủ
             </Button>
           </CardContent>
@@ -164,9 +186,11 @@ export default function LeaderboardPage() {
     );
   }
 
+  // ==================== ĐÃ ĐĂNG NHẬP - BẢNG XẾP HẠNG ====================
   return (
     <div className="min-h-screen bg-zinc-950 pb-20 px-4">
       <div className="max-w-2xl mx-auto">
+        {/* Header giống TripRank */}
         <div className="text-center pt-8 pb-6">
           <div className="inline-flex items-center gap-2 text-4xl font-black tracking-tighter text-white">
             <span className="text-cyan-400">Trip</span>
@@ -196,7 +220,64 @@ export default function LeaderboardPage() {
                 <SelectItem value="Hà Nội">Hà Nội</SelectItem>
                 <SelectItem value="Đà Nẵng">Đà Nẵng</SelectItem>
                 <SelectItem value="Cần Thơ">Cần Thơ</SelectItem>
-                {/* Bạn có thể copy thêm các tỉnh khác nếu cần */}
+                <SelectItem value="An Giang">An Giang</SelectItem>
+                <SelectItem value="Bà Rịa - Vũng Tàu">Bà Rịa - Vũng Tàu</SelectItem>
+                <SelectItem value="Bạc Liêu">Bạc Liêu</SelectItem>
+                <SelectItem value="Bắc Giang">Bắc Giang</SelectItem>
+                <SelectItem value="Bắc Kạn">Bắc Kạn</SelectItem>
+                <SelectItem value="Bắc Ninh">Bắc Ninh</SelectItem>
+                <SelectItem value="Bến Tre">Bến Tre</SelectItem>
+                <SelectItem value="Bình Định">Bình Định</SelectItem>
+                <SelectItem value="Bình Dương">Bình Dương</SelectItem>
+                <SelectItem value="Bình Phước">Bình Phước</SelectItem>
+                <SelectItem value="Bình Thuận">Bình Thuận</SelectItem>
+                <SelectItem value="Cà Mau">Cà Mau</SelectItem>
+                <SelectItem value="Cao Bằng">Cao Bằng</SelectItem>
+                <SelectItem value="Đắk Lắk">Đắk Lắk</SelectItem>
+                <SelectItem value="Đắk Nông">Đắk Nông</SelectItem>
+                <SelectItem value="Điện Biên">Điện Biên</SelectItem>
+                <SelectItem value="Đồng Nai">Đồng Nai</SelectItem>
+                <SelectItem value="Đồng Tháp">Đồng Tháp</SelectItem>
+                <SelectItem value="Gia Lai">Gia Lai</SelectItem>
+                <SelectItem value="Hà Giang">Hà Giang</SelectItem>
+                <SelectItem value="Hà Nam">Hà Nam</SelectItem>
+                <SelectItem value="Hà Tĩnh">Hà Tĩnh</SelectItem>
+                <SelectItem value="Hải Dương">Hải Dương</SelectItem>
+                <SelectItem value="Hậu Giang">Hậu Giang</SelectItem>
+                <SelectItem value="Hòa Bình">Hòa Bình</SelectItem>
+                <SelectItem value="Hưng Yên">Hưng Yên</SelectItem>
+                <SelectItem value="Khánh Hòa">Khánh Hòa</SelectItem>
+                <SelectItem value="Kiên Giang">Kiên Giang</SelectItem>
+                <SelectItem value="Kon Tum">Kon Tum</SelectItem>
+                <SelectItem value="Lai Châu">Lai Châu</SelectItem>
+                <SelectItem value="Lâm Đồng">Lâm Đồng</SelectItem>
+                <SelectItem value="Lạng Sơn">Lạng Sơn</SelectItem>
+                <SelectItem value="Lào Cai">Lào Cai</SelectItem>
+                <SelectItem value="Long An">Long An</SelectItem>
+                <SelectItem value="Nam Định">Nam Định</SelectItem>
+                <SelectItem value="Nghệ An">Nghệ An</SelectItem>
+                <SelectItem value="Ninh Bình">Ninh Bình</SelectItem>
+                <SelectItem value="Ninh Thuận">Ninh Thuận</SelectItem>
+                <SelectItem value="Phú Thọ">Phú Thọ</SelectItem>
+                <SelectItem value="Phú Yên">Phú Yên</SelectItem>
+                <SelectItem value="Quảng Bình">Quảng Bình</SelectItem>
+                <SelectItem value="Quảng Nam">Quảng Nam</SelectItem>
+                <SelectItem value="Quảng Ngãi">Quảng Ngãi</SelectItem>
+                <SelectItem value="Quảng Ninh">Quảng Ninh</SelectItem>
+                <SelectItem value="Quảng Trị">Quảng Trị</SelectItem>
+                <SelectItem value="Sóc Trăng">Sóc Trăng</SelectItem>
+                <SelectItem value="Sơn La">Sơn La</SelectItem>
+                <SelectItem value="Tây Ninh">Tây Ninh</SelectItem>
+                <SelectItem value="Thái Bình">Thái Bình</SelectItem>
+                <SelectItem value="Thái Nguyên">Thái Nguyên</SelectItem>
+                <SelectItem value="Thanh Hóa">Thanh Hóa</SelectItem>
+                <SelectItem value="Thừa Thiên Huế">Thừa Thiên Huế</SelectItem>
+                <SelectItem value="Tiền Giang">Tiền Giang</SelectItem>
+                <SelectItem value="Trà Vinh">Trà Vinh</SelectItem>
+                <SelectItem value="Tuyên Quang">Tuyên Quang</SelectItem>
+                <SelectItem value="Vĩnh Long">Vĩnh Long</SelectItem>
+                <SelectItem value="Vĩnh Phúc">Vĩnh Phúc</SelectItem>
+                <SelectItem value="Yên Bái">Yên Bái</SelectItem>
               </SelectContent>
             </Select>
 
@@ -223,34 +304,11 @@ export default function LeaderboardPage() {
             <LeaderboardTable data={memoizedData} type="acceleration" loading={loading} user={user} />
           </TabsContent>
         </Tabs>
-
-        {/* NÚT XEM THÊM - ĐÃ FIX VỊ TRÍ */}
-        {hasMore && (
-          <div className="flex justify-center mt-10 mb-8">
-            <Button
-              onClick={() => loadData(false)}
-              disabled={loadingMore}
-              variant="outline"
-              className="px-10 py-7 text-base flex items-center gap-3"
-            >
-              {loadingMore ? (
-                'Đang tải thêm...'
-              ) : (
-                <>
-                  Xem thêm 10 racer <ChevronDown className="w-5 h-5" />
-                </>
-              )}
-            </Button>
-          </div>
-        )}
-
-        <DonateModal />
       </div>
     </div>
   );
 }
 
-// ==================== BẢNG XẾP HẠNG (giữ nguyên style) ====================
 function LeaderboardTable({ 
   data, 
   type, 
@@ -262,7 +320,7 @@ function LeaderboardTable({
   loading: boolean;
   user: any;
 }) {
-  if (loading && data.length === 0) {
+  if (loading) {
     return (
       <Card className="bg-zinc-900 border-zinc-800 w-full">
         <CardContent className="p-12 text-center text-zinc-400">
@@ -276,7 +334,7 @@ function LeaderboardTable({
     return (
       <Card className="bg-zinc-900 border-zinc-800 w-full">
         <CardContent className="p-12 text-center text-zinc-400">
-          Chưa có dữ liệu. Hãy chạy và ghi lại kết quả đầu tiên!
+          Chưa có dữ liệu run nào. Hãy chạy và ghi lại kết quả đầu tiên!
         </CardContent>
       </Card>
     );
@@ -325,7 +383,13 @@ function LeaderboardTable({
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
                   const parent = e.currentTarget.parentElement;
-                  if (parent) parent.innerHTML = `<div class="w-full h-full flex items-center justify-center bg-zinc-700 text-zinc-400 text-3xl">👤</div>`;
+                  if (parent) {
+                    parent.innerHTML = `
+                      <div class="w-full h-full flex items-center justify-center bg-zinc-700 text-zinc-400 text-3xl">
+                        👤
+                      </div>
+                    `;
+                  }
                 }}
               />
             </div>
@@ -357,6 +421,7 @@ function LeaderboardTable({
           </div>
         );
       })}
+      <DonateModal />
     </div>
   );
 }
