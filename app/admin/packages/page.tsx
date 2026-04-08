@@ -21,9 +21,8 @@ export default function PackagesPage() {
     name: '',
     display_name: '',
     price: 0,
-    duration_days: 30,
-    duration_type: 'days',
-    duration_value: 30,
+    duration_type: 'hours',        // mặc định giờ vì bạn bán gói giờ
+    duration_value: 2,
     max_runs: 999,
     description: '',
     is_active: true,
@@ -84,9 +83,8 @@ export default function PackagesPage() {
       name: pkg.name || '',
       display_name: pkg.display_name || '',
       price: pkg.price || 0,
-      duration_days: pkg.duration_days || 30,
-      duration_type: pkg.duration_type || 'days',
-      duration_value: pkg.duration_value || 30,
+      duration_type: pkg.duration_type || 'hours',
+      duration_value: pkg.duration_value || 2,
       max_runs: pkg.max_runs || 999,
       description: pkg.description || '',
       is_active: pkg.is_active ?? true,
@@ -101,7 +99,7 @@ export default function PackagesPage() {
         <Button 
           onClick={() => {
             setEditingPkg(null);
-            setForm({ name: '', display_name: '', price: 0, duration_days: 30, duration_type: 'days', duration_value: 30, max_runs: 999, description: '', is_active: true });
+            setForm({ name: '', display_name: '', price: 0, duration_type: 'hours', duration_value: 2, max_runs: 999, description: '', is_active: true });
             setOpen(true);
           }}
         >
@@ -116,7 +114,7 @@ export default function PackagesPage() {
       )}
 
       {loading ? (
-        <p className="text-center py-12">Đang tải...</p>
+        <p className="text-center py-12">Đang tải gói cước...</p>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
           {packages.map((pkg) => (
@@ -141,11 +139,11 @@ export default function PackagesPage() {
                 <div className="text-sm flex justify-between">
                   <span className="text-zinc-400">Thời hạn</span>
                   <span className="font-medium">
-                    {pkg.duration_days} ngày
+                    {pkg.duration_value} {pkg.duration_type === 'minutes' ? 'phút' : pkg.duration_type === 'hours' ? 'giờ' : 'ngày'}
                   </span>
                 </div>
                 <div className="text-sm flex justify-between">
-                  <span className="text-zinc-400">Số run</span>
+                  <span className="text-zinc-400">Số run tối đa</span>
                   <span className="font-medium">{pkg.max_runs} lần</span>
                 </div>
               </CardContent>
@@ -154,7 +152,7 @@ export default function PackagesPage() {
         </div>
       )}
 
-      {/* Dialog thêm/sửa gói */}
+      {/* Dialog thêm/sửa */}
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -163,20 +161,37 @@ export default function PackagesPage() {
           <div className="space-y-6 py-4">
             <div>
               <Label>Tên gói (code)</Label>
-              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
+              <Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="PRO2H" />
             </div>
             <div>
               <Label>Tên hiển thị</Label>
-              <Input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} />
+              <Input value={form.display_name} onChange={(e) => setForm({ ...form, display_name: e.target.value })} placeholder="Gói Pro 2 giờ" />
             </div>
             <div>
               <Label>Giá (VND)</Label>
               <Input type="number" value={form.price} onChange={(e) => setForm({ ...form, price: Number(e.target.value) })} />
             </div>
-            <div>
-              <Label>Thời hạn (ngày)</Label>
-              <Input type="number" value={form.duration_days} onChange={(e) => setForm({ ...form, duration_days: Number(e.target.value) })} />
+
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <Label>Số lượng</Label>
+                <Input type="number" value={form.duration_value} onChange={(e) => setForm({ ...form, duration_value: Number(e.target.value) })} />
+              </div>
+              <div>
+                <Label>Đơn vị</Label>
+                <Select value={form.duration_type} onValueChange={(v) => setForm({ ...form, duration_type: v })}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="minutes">Phút</SelectItem>
+                    <SelectItem value="hours">Giờ</SelectItem>
+                    <SelectItem value="days">Ngày</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
+
             <div>
               <Label>Số run tối đa</Label>
               <Input type="number" value={form.max_runs} onChange={(e) => setForm({ ...form, max_runs: Number(e.target.value) })} />
