@@ -378,7 +378,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN + 3 TỐI ƯU CHỐNG HACK ====================
+  // ==================== STOP RUN + LOGIC MUA GÓI + FREE 2 LẦN ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -411,48 +411,81 @@ export default function RunPage() {
     setShowResult(true);
     setIsCalculatingRank(true);
 
-    // ==================== 3 ĐIỀU KIỆN CHỐNG HACK & RUN RÁC ====================
-    const isValidGPS = gpsAccuracy !== null && gpsAccuracy <= 30;           // Ý 1
-    const isValidSpeed = finalMaxSpeed >= 40;                               // Ý 2
-    const hasEnoughData = speedHistory.current.length >= 15;                // Ý 3
-
-    if (!isValidGPS || !isValidSpeed || !hasEnoughData) {
+    // ==================== LOGIC MUA GÓI + FREE 2 LẦN ====================
+    const currentUser = await getCurrentUser();
+    if (!currentUser || !selectedVehicle) {
       setIsCalculatingRank(false);
-      setRunResult(prev => ({
-        ...prev,
-        rankInRegionToday: 0,
-        personalBestImprovement: 0,
-        isNewPersonalBest: false,
-      }));
-      console.warn('🚫 Run không đủ điều kiện lưu (GPS kém / tốc độ thấp / run quá ngắn)');
       return;
     }
 
-    // GPS + Speed + Data hợp lệ → mới lưu DB
+    // Lấy thông tin free run và subscription
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('free_runs_used')
+      .eq('id', currentUser.id)
+      .single();
+
+    const freeUsed = profile?.free_runs_used || 0;
+
+    // Kiểm tra subscription active
+    const { data: sub } = await supabase
+      .from('user_subscriptions')
+      .select('remaining_runs')
+      .eq('user_id', currentUser.id)
+      .eq('status', 'active')
+      .gte('end_date', new Date().toISOString())
+      .single();
+
+    const hasActiveSub = !!sub && sub.remaining_runs > 0;
+
+    // Quyết định có lưu DB hay không
+    const canSaveToDB = hasActiveSub || freeUsed < 2;
+
+    if (!canSaveToDB) {
+      setIsCalculatingRank(false);
+      alert('Bạn đã hết 2 lượt thử miễn phí.\nVui lòng mua gói cước để tiếp tục lưu run và tính rank!');
+      return;
+    }
+
+    // Lưu DB
+    if (hasActiveSub) {
+      // Trừ remaining_runs
+      await supabase
+        .from('user_subscriptions')
+        .update({ remaining_runs: sub.remaining_runs - 1 })
+        .eq('user_id', currentUser.id)
+        .eq('status', 'active');
+    } else {
+      // Tăng lượt free
+      await supabase
+        .from('profiles')
+        .update({ free_runs_used: freeUsed + 1 })
+        .eq('id', currentUser.id);
+    }
+
+    // Lưu run vào DB
+    await supabase.from('runs').insert({
+      user_id: currentUser.id,
+      vehicle_id: selectedVehicle.id,
+      max_speed: finalMaxSpeed,
+      zero_to_sixty: null,
+      zero_to_hundred: zeroToHundred,
+      distance_to_max_speed: null,
+      gps_data: [],
+      start_lat: null,
+      start_lng: null,
+      end_lat: null,
+      end_lng: null,
+      region: currentRegion,
+      gps_accuracy: 'Good',
+      is_low_accuracy: false,
+      ai_analysis: null,
+      ai_verified: false,
+    });
+
+    // Tính rank background
     const processInBackground = async () => {
       try {
-        const userData = await getCurrentUser();
-        if (!userData || !selectedVehicle) return;
-
-        await supabase.from('runs').insert({
-          user_id: userData.id,
-          vehicle_id: selectedVehicle.id,
-          max_speed: finalMaxSpeed,
-          zero_to_sixty: null,
-          zero_to_hundred: zeroToHundred,
-          distance_to_max_speed: null,
-          gps_data: [],
-          start_lat: null,
-          start_lng: null,
-          end_lat: null,
-          end_lng: null,
-          region: currentRegion,
-          gps_accuracy: 'Good',
-          is_low_accuracy: false,
-          ai_analysis: null,
-          ai_verified: false,
-        });
-
         const today = new Date().toISOString().split('T')[0];
         const { data: todayRuns } = await supabase
           .from('runs')
@@ -469,7 +502,7 @@ export default function RunPage() {
         const { data: prevBest } = await supabase
           .from('runs')
           .select('max_speed')
-          .eq('user_id', userData.id)
+          .eq('user_id', currentUser.id)
           .order('max_speed', { ascending: false })
           .limit(1);
 
@@ -484,7 +517,7 @@ export default function RunPage() {
           isNewPersonalBest,
         }));
       } catch (err) {
-        console.error('Lỗi khi lưu run:', err);
+        console.error('Lỗi khi tính rank:', err);
       } finally {
         setIsCalculatingRank(false);
       }
@@ -689,7 +722,7 @@ export default function RunPage() {
                 )}
               </div>
 
-              {/* THÔNG BÁO CHỐNG HACK */}
+              {/* THÔNG BÁO CHỐNG HACK + MUA GÓI */}
               {(!gpsAccuracy || gpsAccuracy > 30 || runResult.maxSpeed < 40 || speedHistory.current.length < 15) && (
                 <div className="bg-yellow-900/50 border border-yellow-500 text-yellow-300 p-4 rounded-2xl text-center text-sm">
                   ⚠️ Run không đủ điều kiện lưu DB<br />
