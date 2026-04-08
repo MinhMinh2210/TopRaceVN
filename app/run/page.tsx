@@ -915,7 +915,7 @@ export default function RunPage() {
             </div>
 
             <Button onClick={confirmPayment} disabled={isConfirmingPayment} className="w-full py-7 text-lg bg-green-600 hover:bg-green-700">
-              {isConfirmingPayment ? 'Đang gửi yêu cầu...' : 'Tôi đã chuyển khoản'}
+              {isConfirmingPayment ? 'Đang gửi yêu cầu..' : 'Tôi đã chuyển khoản'}
             </Button>
 
             <Button variant="outline" onClick={() => setShowPaymentModal(false)} className="w-full">Đóng</Button>
