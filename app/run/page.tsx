@@ -125,7 +125,6 @@ export default function RunPage() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
 
-  // ==================== TRẠNG THÁI MUA GÓI ====================
   const [freeRunsUsed, setFreeRunsUsed] = useState(0);
   const [hasActiveSub, setHasActiveSub] = useState(false);
   const [packages, setPackages] = useState<any[]>([]);
@@ -238,7 +237,7 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== NEW: REFRESH USER DATA (fix stale free run) ====================
+  // ==================== REFRESH USER DATA ====================
   const refreshUserData = useCallback(async () => {
     if (!user?.id) return;
     try {
@@ -266,7 +265,7 @@ export default function RunPage() {
     }
   }, [user]);
 
-  // ==================== INIT + LẤY NICKNAME THẬT ====================
+  // ==================== INIT ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
@@ -291,7 +290,6 @@ export default function RunPage() {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/run' } });
   }, []);
 
-  // ==================== CHECK GPS & START RUN ====================
   const checkGPS = useCallback(async () => {
     setIsCheckingGPS(true);
     setErrorMessage('');
@@ -425,7 +423,7 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== FIXED STOP RUN (không trừ lượt khi 0km/h hoặc invalid) ====================
+  // ==================== STOP RUN - LUÔN TRỪ LƯỢT (kể cả 0km/h) ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -458,20 +456,6 @@ export default function RunPage() {
     setShowResult(true);
     setIsCalculatingRank(true);
 
-    const isValidGPS = gpsAccuracy !== null && gpsAccuracy <= 30;
-    const isValidSpeed = finalMaxSpeed >= 40;
-    const hasEnoughData = speedHistory.current.length >= 15;
-
-    // ==================== INVALID RUN → KHÔNG TRỪ LƯỢT ====================
-    if (!isValidGPS || !isValidSpeed || !hasEnoughData) {
-      console.warn('🚫 Run không đủ điều kiện lưu', { isValidGPS, isValidSpeed, hasEnoughData, maxSpeed: finalMaxSpeed, accuracy: gpsAccuracy });
-      setRunResult(prev => ({ ...prev, rankInRegionToday: -1 }));
-      setIsCalculatingRank(false);
-      await refreshUserData();
-      return;
-    }
-
-    // ==================== VALID RUN → LƯU VÀ TRỪ LƯỢT ====================
     const currentUser = await getCurrentUser();
     if (!currentUser || !selectedVehicle) {
       setIsCalculatingRank(false);
@@ -479,6 +463,7 @@ export default function RunPage() {
       return;
     }
 
+    // LUÔN insert run (kể cả 0km/h)
     await supabase.from('runs').insert({
       user_id: currentUser.id,
       vehicle_id: selectedVehicle.id,
@@ -493,12 +478,12 @@ export default function RunPage() {
       end_lng: null,
       region: currentRegion,
       gps_accuracy: 'Good',
-      is_low_accuracy: false,
+      is_low_accuracy: false,           // vẫn false để trigger DB hoạt động
       ai_analysis: null,
       ai_verified: false,
     });
 
-    // Explicit update free_runs_used (chỉ khi chưa có sub)
+    // LUÔN trừ lượt free run (kể cả 0km/h)
     if (!hasActiveSub) {
       const newUsed = freeRunsUsed + 1;
       const { error: updateError } = await supabase
@@ -509,7 +494,7 @@ export default function RunPage() {
       if (!updateError) setFreeRunsUsed(newUsed);
     }
 
-    // Background rank
+    // Background tính rank
     const processInBackground = async () => {
       try {
         const today = new Date().toISOString().split('T')[0];
@@ -551,9 +536,8 @@ export default function RunPage() {
 
     processInBackground();
     await refreshUserData();
-  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, gpsAccuracy, hasActiveSub, freeRunsUsed, refreshUserData]);
+  }, [watchId, stopDeviceMotion, selectedVehicle, currentRegion, hasActiveSub, freeRunsUsed, refreshUserData]);
 
-  // ==================== RESET RUN ====================
   const resetRun = useCallback(() => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -572,7 +556,7 @@ export default function RunPage() {
     setIsStarting(false);
     setIsAutoCheckingOnStart(false);
     setIsCalculatingRank(false);
-    refreshUserData(); // sync lại free run sau reset
+    refreshUserData();
   }, [watchId, stopDeviceMotion, refreshUserData]);
 
   const downloadResultAsImage = useCallback(async () => {
@@ -597,7 +581,7 @@ export default function RunPage() {
     return countdown;
   };
 
-  // ==================== THANH TOÁN ====================
+  // ==================== THANH TOÁN (giữ nguyên) ====================
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
     setShowBuyModal(false);
@@ -786,7 +770,7 @@ export default function RunPage() {
               </div>
 
               <div className="text-center">
-                {runResult.maxSpeed < 40 || runResult.rankInRegionToday === -1 ? (
+                {runResult.maxSpeed < 40 ? (
                   <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG</p>
                 ) : (
                   <>
@@ -803,7 +787,7 @@ export default function RunPage() {
                   <RotateCcw className="mr-2 h-5 w-5" />
                   Again
                 </Button>
-                {runResult.maxSpeed >= 40 && runResult.rankInRegionToday !== -1 && (
+                {runResult.maxSpeed >= 40 && (
                   <Button onClick={() => window.location.href = '/leaderboard'} className="flex-1 py-6 text-base">
                     Rank
                   </Button>
@@ -814,7 +798,7 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* MODAL DANH SÁCH GÓI */}
+      {/* MODAL DANH SÁCH GÓI + THANH TOÁN (giữ nguyên) */}
       <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
         <DialogContent className="w-[95vw] max-w-lg rounded-3xl">
           <DialogHeader>
@@ -843,7 +827,6 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* MODAL CHUYỂN KHOẢN CHI TIẾT */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
