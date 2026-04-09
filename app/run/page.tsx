@@ -147,7 +147,7 @@ export default function RunPage() {
   const [selectedPackage, setSelectedPackage] = useState<any>(null);
   const [paymentLink, setPaymentLink] = useState<string>('');
 
-  // ==================== THÊM STATE QR PAYOS TRỰC TIẾP ====================
+  // ==================== QR PAYOS TRỰC TIẾP ====================
   const [payOsQrCode, setPayOsQrCode] = useState<string>('');
 
   const canStartRun = hasActiveSub || freeRunsUsed < 2;
@@ -746,10 +746,10 @@ export default function RunPage() {
           // Lấy QR code trực tiếp từ PayOS
           if (result.data.qrCode) {
             setPayOsQrCode(result.data.qrCode);
+            console.log('✅ PayOS QR code loaded successfully');
           } else if (result.data.checkoutUrl) {
             setPaymentLink(result.data.checkoutUrl);
           }
-          console.log('✅ PayOS order + QR created');
         } else {
           console.error('PayOS error:', result);
           alert(`Lỗi PayOS: ${result.desc || JSON.stringify(result)}`);
@@ -1007,7 +1007,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* PAYMENT MODAL - HIỆN QR PAYOS TRỰC TIẾP */}
+      {/* PAYMENT MODAL - QR PAYOS TRỰC TIẾP */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
