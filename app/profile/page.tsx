@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 import { logout } from '@/app/features/auth/logout';
@@ -39,10 +39,46 @@ type RunHistory = {
   is_low_accuracy: boolean | null;
   region: string;
   created_at: string;
-  vehicles: {
-    nickname: string;
-    vehicle_type: string;
-  } | null;
+  vehicles: { nickname: string; vehicle_type: string } | null;
+};
+
+// ==================== AVATAR OPTIMIZER (VŨ TRỤ) ====================
+const compressImage = async (file: File, maxWidth = 400): Promise<File> => {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let { width, height } = img;
+        if (width > maxWidth) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d')!;
+        ctx.drawImage(img, 0, 0, width, height);
+
+        canvas.toBlob(
+          (blob) => {
+            if (blob) {
+              resolve(new File([blob], file.name.replace(/\.\w+$/, '.webp'), { type: 'image/webp' }));
+            } else resolve(file);
+          },
+          'image/webp',
+          0.82
+        );
+      };
+      img.src = e.target?.result as string;
+    };
+    reader.readAsDataURL(file);
+  });
+};
+
+const getOptimizedAvatarUrl = (url: string | null | undefined, size = 300): string => {
+  if (!url) return '';
+  return `${url}?width=${size}&height=${size}&resize=contain&format=webp&quality=82`;
 };
 
 export default function MyProfilePage() {
@@ -62,7 +98,7 @@ export default function MyProfilePage() {
   const [historyOpen, setHistoryOpen] = useState(false);
   const [selectedRun, setSelectedRun] = useState<RunHistory | null>(null);
 
-  // ==================== LOAD ALL DATA (PARALLEL - EXTREME OPTIMIZATION) ====================
+  // ==================== LOAD ALL DATA ====================
   const loadAllData = useCallback(async () => {
     const currentUser = await getCurrentUser();
     setUser(currentUser);
@@ -79,15 +115,8 @@ export default function MyProfilePage() {
       supabase
         .from('runs')
         .select(`
-          id, 
-          max_speed, 
-          zero_to_sixty, 
-          zero_to_hundred, 
-          distance_to_max_speed,
-          gps_accuracy,
-          is_low_accuracy,
-          region,
-          created_at,
+          id, max_speed, zero_to_sixty, zero_to_hundred, distance_to_max_speed,
+          gps_accuracy, is_low_accuracy, region, created_at,
           vehicles (nickname, vehicle_type)
         `)
         .eq('user_id', currentUser.id)
@@ -97,30 +126,21 @@ export default function MyProfilePage() {
       supabase.from('runs').select('max_speed').eq('user_id', currentUser.id).order('max_speed', { ascending: false }).limit(1),
     ]);
 
-    // Set data
     setProfile(profileRes.data);
     setEditForm(profileRes.data || { nickname: '', full_name: '', avatar_url: '', bio: '' });
     setVehicles(vehiclesRes.data || []);
 
-    const formattedRuns = (runsRes.data || []).map((r: any) => ({
-      id: r.id,
-      max_speed: r.max_speed,
-      zero_to_sixty: r.zero_to_sixty,
-      zero_to_hundred: r.zero_to_hundred,
-      distance_to_max_speed: r.distance_to_max_speed,
-      gps_accuracy: r.gps_accuracy,
-      is_low_accuracy: r.is_low_accuracy,
-      region: r.region || 'Không xác định',
-      created_at: r.created_at,
-      vehicles: r.vehicles || null,
-    }));
-
-    setRunsHistory(formattedRuns);
+    setRunsHistory(
+      (runsRes.data || []).map((r: any) => ({
+        ...r,
+        region: r.region || 'Không xác định',
+        vehicles: r.vehicles || null,
+      }))
+    );
 
     const runCount = statsRes.count || 0;
     const bestSpeed = bestRes.data?.[0]?.max_speed || 0;
 
-    // Tính rank global
     let rank: string | number = '—';
     if (bestSpeed > 0) {
       const { count: higher } = await supabase
@@ -139,20 +159,13 @@ export default function MyProfilePage() {
     loadAllData();
   }, [loadAllData]);
 
-  // ==================== GOOGLE LOGIN & LOGOUT ====================
-  const handleGoogleLogin = useCallback(async () => {
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin + '/profile' },
-    });
-  }, []);
-
+  // ==================== LOGOUT ====================
   const handleLogout = useCallback(async () => {
     await logout();
   }, []);
 
   // ==================== AVATAR HANDLER ====================
-  const handleAvatarChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleAvatarChange = useCallback(async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
@@ -160,8 +173,9 @@ export default function MyProfilePage() {
       e.target.value = '';
       return;
     }
-    setAvatarFile(file);
-    setPreviewUrl(URL.createObjectURL(file));
+    const compressed = await compressImage(file);
+    setAvatarFile(compressed);
+    setPreviewUrl(URL.createObjectURL(compressed));
   }, []);
 
   // ==================== UPDATE PROFILE ====================
@@ -170,9 +184,14 @@ export default function MyProfilePage() {
     let avatarUrl = editForm.avatar_url;
 
     if (avatarFile) {
-      const fileExt = avatarFile.name.split('.').pop();
-      const fileName = `${user.id}-${Date.now()}.${fileExt}`;
-      await supabase.storage.from('avatars').upload(fileName, avatarFile, { upsert: true });
+      const fileName = `${user.id}-${Date.now()}.webp`;
+      await supabase.storage
+        .from('avatars')
+        .upload(fileName, avatarFile, {
+          upsert: true,
+          cacheControl: '2592000', // 30 ngày
+        });
+
       const { data } = supabase.storage.from('avatars').getPublicUrl(fileName);
       avatarUrl = data.publicUrl;
     }
@@ -190,10 +209,16 @@ export default function MyProfilePage() {
     setProfile({ ...editForm, avatar_url: avatarUrl });
     setEditOpen(false);
     setAvatarFile(null);
+    if (previewUrl) URL.revokeObjectURL(previewUrl);
     setPreviewUrl('');
-  }, [user, editForm, avatarFile]);
+  }, [user, editForm, avatarFile, previewUrl]);
 
-  // ==================== LOADING ====================
+  const optimizedAvatarUrl = useMemo(
+    () => getOptimizedAvatarUrl(profile?.avatar_url),
+    [profile?.avatar_url]
+  );
+
+  // ==================== RENDER ====================
   if (isAuthLoading || !isDataLoaded) {
     return (
       <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
@@ -212,7 +237,15 @@ export default function MyProfilePage() {
             </div>
             <h1 className="text-3xl font-black mb-2">Chào mừng trở lại!</h1>
             <p className="text-zinc-400 mb-8">Đăng nhập để xem profile và lịch sử Run của bạn</p>
-            <Button onClick={handleGoogleLogin} className="w-full py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3">
+            <Button
+              onClick={() =>
+                supabase.auth.signInWithOAuth({
+                  provider: 'google',
+                  options: { redirectTo: window.location.origin + '/profile' },
+                })
+              }
+              className="w-full py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
+            >
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Google Login
             </Button>
@@ -233,7 +266,7 @@ export default function MyProfilePage() {
       <div className="flex flex-col items-center text-center pt-4">
         <div className="relative">
           <Avatar className="w-28 h-28 mb-4 border-4 border-green-500">
-            <AvatarImage src={profile?.avatar_url || ''} />
+            <AvatarImage src={optimizedAvatarUrl} />
             <AvatarFallback className="text-5xl bg-zinc-800">
               {profile?.nickname?.[0] || '?'}
             </AvatarFallback>
@@ -359,7 +392,6 @@ export default function MyProfilePage() {
                 <p className="text-7xl font-black text-green-400">{selectedRun.max_speed}</p>
                 <p className="text-zinc-400 text-2xl">km/h</p>
               </div>
-
               <div className="grid grid-cols-2 gap-6 border-t border-zinc-700 pt-6">
                 {selectedRun.zero_to_sixty && (
                   <div className="text-center">
@@ -380,7 +412,6 @@ export default function MyProfilePage() {
                   </div>
                 )}
               </div>
-
               <div className="space-y-4 text-sm border-t border-zinc-700 pt-6">
                 <div className="flex justify-between">
                   <span className="text-zinc-400">Khu vực</span>
@@ -422,7 +453,7 @@ export default function MyProfilePage() {
           </DialogHeader>
           <div className="space-y-6 py-4">
             <div>
-              <Label>Ảnh đại diện (tối đa 5MB)</Label>
+              <Label>Ảnh đại diện (tối đa 5MB - tự nén)</Label>
               <Input type="file" accept="image/*" onChange={handleAvatarChange} className="h-12" />
               {previewUrl && <img src={previewUrl} alt="preview" className="mt-4 w-20 h-20 object-cover rounded-xl" />}
             </div>
