@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
@@ -20,6 +20,12 @@ type LeaderboardItem = {
   value: number;
   region: string;
   created_at: string;
+};
+
+// ==================== AVATAR OPTIMIZER (VŨ TRỤ - GIẢM EGRESS MẠNH) ====================
+const getOptimizedAvatarUrl = (url: string | null | undefined, size = 96): string => {
+  if (!url) return `https://avatar.vercel.sh/${Math.random().toString(36)}?size=${size}`;
+  return `${url}?width=${size}&height=${size}&resize=contain&format=webp&quality=80`;
 };
 
 export default function LeaderboardPage() {
@@ -52,7 +58,7 @@ export default function LeaderboardPage() {
     });
   }, []);
 
-  // ==================== LOAD DATA (fetch lại khi filter thay đổi) ====================
+  // ==================== LOAD DATA (GIỮ NGUYÊN CẤU TRÚC BE) ====================
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -124,7 +130,12 @@ export default function LeaderboardPage() {
       }
     });
 
-    const bestRecords = Array.from(bestPerUser.values());
+    let bestRecords = Array.from(bestPerUser.values());
+
+    // ==================== FIX BUG FILTER LOẠI XE (ĐẢM BẢO CHÍNH XÁC 100%) ====================
+    if (typeFilter !== 'all') {
+      bestRecords = bestRecords.filter((item: any) => item.vehicles?.vehicle_type === typeFilter);
+    }
 
     // ==================== GIỚI HẠN CHỈ 30 NGƯỜI ====================
     const top30 = bestRecords.slice(0, 30);
@@ -356,6 +367,12 @@ function LeaderboardTable({
         else if (rank === 2) medalColor = 'text-zinc-300';
         else if (rank === 3) medalColor = 'text-amber-600';
 
+        // Tối ưu avatar cho từng item (giảm egress mạnh)
+        const optimizedAvatar = useMemo(
+          () => getOptimizedAvatarUrl(item.avatar_url),
+          [item.avatar_url]
+        );
+
         return (
           <div
             key={item.rank}
@@ -382,8 +399,9 @@ function LeaderboardTable({
 
             <div className="w-14 h-14 flex-shrink-0 rounded-3xl overflow-hidden border-2 border-zinc-700 bg-zinc-800">
               <img
-                src={item.avatar_url || `https://avatar.vercel.sh/${item.user_id}?size=128`}
+                src={optimizedAvatar}
                 alt={item.nickname}
+                loading="lazy"
                 className="w-full h-full object-cover transition-transform group-hover:scale-110"
                 onError={(e) => {
                   e.currentTarget.style.display = 'none';
