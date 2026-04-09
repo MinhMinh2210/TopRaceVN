@@ -132,7 +132,6 @@ export default function RunPage() {
   const [selectedVehicle, setSelectedVehicle] = useState<Vehicle | null>(null);
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
-
   const [isPageReady, setIsPageReady] = useState(false);
 
   const [freeRunsUsed, setFreeRunsUsed] = useState(0);
@@ -141,8 +140,7 @@ export default function RunPage() {
   const [showBuyModal, setShowBuyModal] = useState(false);
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<any>(null);
-  const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
-  const [paymentLink, setPaymentLink] = useState<string>('');   // ← Thêm dòng này
+  const [paymentLink, setPaymentLink] = useState<string>('');
 
   const canStartRun = hasActiveSub || freeRunsUsed < 2;
 
@@ -153,7 +151,6 @@ export default function RunPage() {
   const [gpsAccuracy, setGpsAccuracy] = useState<number | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
   const [watchId, setWatchId] = useState<number | null>(null);
-
   const [currentRegion, setCurrentRegion] = useState<string>('Đang xác định...');
 
   const [showResult, setShowResult] = useState(false);
@@ -177,7 +174,6 @@ export default function RunPage() {
   const deviceCapabilityRef = useRef<'low' | 'medium' | 'high'>('medium');
 
   const isStartingRunRef = useRef(false);
-
   const resultRef = useRef<HTMLDivElement>(null);
   const speedHistory = useRef<{ timestamp: number; speed: number }[]>([]);
 
@@ -647,7 +643,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== PAYOS + MB BANK (TÍCH HỢP MỚI) ====================
+  // ==================== PAYOS + MB BANK (ĐÃ SỬA THEO YÊU CẦU) ====================
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
     setShowBuyModal(false);
@@ -661,30 +657,9 @@ export default function RunPage() {
     const orderCode = Date.now().toString();
     const payOSLink = `https://pay.payos.vn/web/${orderCode}?amount=${selectedPackage.price}&description=${encodeURIComponent(memo)}&accountNo=0703926856&accountName=NGUYEN+BINH+MINH&bankCode=MB`;
     setPaymentLink(payOSLink);
-    navigator.clipboard.writeText(memo).then(() => alert('✅ Đã copy nội dung chuyển khoản!'));
-  };
-
-  const confirmPayment = async () => {
-    if (!selectedPackage || !user) return;
-    setIsConfirmingPayment(true);
-
-    const memo = `${nickname}_${selectedPackage.name}`;
-
-    const { error } = await supabase.from('payment_logs').insert({
-      user_id: user.id,
-      package_id: selectedPackage.id,
-      amount: selectedPackage.price,
-      memo: memo,
-      status: 'pending',
+    navigator.clipboard.writeText(memo).then(() => {
+      alert('✅ Đã copy nội dung chuyển khoản!\nDán chính xác vào app ngân hàng (giữ nguyên dấu _).');
     });
-
-    if (error) alert('Lỗi: ' + error.message);
-    else {
-      alert('✅ Yêu cầu thanh toán đã được ghi nhận!\nHệ thống sẽ tự động kích hoạt gói khi bạn chuyển khoản thành công qua MB Bank.');
-      setShowPaymentModal(false);
-      setSelectedPackage(null);
-    }
-    setIsConfirmingPayment(false);
   };
 
   const copyToClipboard = (text: string) => {
@@ -931,7 +906,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ==================== PAYMENT MODAL MỚI - MB BANK + QR PAYOS ==================== */}
+      {/* ==================== PAYMENT MODAL MỚI (QR CODE THỰC TẾ) ==================== */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -964,6 +939,7 @@ export default function RunPage() {
                     <Copy className="w-4 h-4" />
                   </Button>
                 </div>
+                <p className="text-xs text-amber-400 mt-1">* Copy chính xác, giữ nguyên dấu _</p>
               </div>
               <div className="text-center text-4xl font-black text-cyan-400">
                 {selectedPackage?.price.toLocaleString()}đ
@@ -978,16 +954,15 @@ export default function RunPage() {
               </Button>
 
               {paymentLink && (
-                <div className="text-center text-sm text-emerald-400">
-                  ✅ Link thanh toán đã sẵn sàng!<br />
-                  <a href={paymentLink} target="_blank" rel="noopener noreferrer" className="underline">Mở link payOS</a>
+                <div className="flex justify-center bg-white p-4 rounded-2xl">
+                  <img 
+                    src={`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(paymentLink)}`} 
+                    alt="QR Thanh Toán" 
+                    className="rounded-xl"
+                  />
                 </div>
               )}
             </div>
-
-            <Button onClick={confirmPayment} disabled={isConfirmingPayment} className="w-full py-7 text-lg bg-green-600 hover:bg-green-700">
-              {isConfirmingPayment ? 'Đang gửi yêu cầu..' : 'Tôi đã chuyển khoản'}
-            </Button>
 
             <Button variant="outline" onClick={() => setShowPaymentModal(false)} className="w-full">Đóng</Button>
           </div>
