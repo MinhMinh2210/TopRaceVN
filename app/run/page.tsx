@@ -16,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Play, Square, RotateCcw, AlertCircle, Car, Download, Copy } from 'lucide-react';
+import { Play, Square, RotateCcw, AlertCircle, Car, Download, Copy, QrCode } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import DonateModal from '../components/donate-modal';
 
@@ -142,6 +142,7 @@ export default function RunPage() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<any>(null);
   const [isConfirmingPayment, setIsConfirmingPayment] = useState(false);
+  const [paymentLink, setPaymentLink] = useState<string>('');   // ← Thêm dòng này
 
   const canStartRun = hasActiveSub || freeRunsUsed < 2;
 
@@ -172,7 +173,6 @@ export default function RunPage() {
   const [isStarting, setIsStarting] = useState(false);
   const [isAutoCheckingOnStart, setIsAutoCheckingOnStart] = useState(false);
 
-  // ==================== DEVICE & NETWORK DETECTION (TỐI ƯU GPS) ====================
   const [networkType, setNetworkType] = useState<'slow-2g' | '2g' | '3g' | '4g' | '5g' | 'unknown'>('4g');
   const deviceCapabilityRef = useRef<'low' | 'medium' | 'high'>('medium');
 
@@ -194,7 +194,6 @@ export default function RunPage() {
   const lastSpeedUpdateRef = useRef(0);
   const maxSpeedRef = useRef(0);
 
-  // ==================== DEVICE MOTION & FUSED SPEED (TỐI ƯU THEO THIẾT BỊ) ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
     if (event.acceleration) {
       accelerationRef.current = { x: event.acceleration.x ?? 0, y: event.acceleration.y ?? 0, z: event.acceleration.z ?? 0 };
@@ -245,7 +244,6 @@ export default function RunPage() {
       }
     }
 
-    // TỐI ƯU THEO THIẾT BỊ: máy mạnh → mượt hơn, máy yếu → ổn định hơn
     const alpha = isCalibrated 
       ? (deviceCapabilityRef.current === 'high' ? 0.72 : deviceCapabilityRef.current === 'medium' ? 0.65 : 0.55)
       : 0.4;
@@ -257,33 +255,21 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== DETECT MẠNG & THIẾT BỊ (4G/5G + CẤU HÌNH) ====================
   useEffect(() => {
     const detectNetworkAndDevice = () => {
-      // Network Information API
       if ('connection' in navigator) {
         const conn = (navigator as any).connection;
         if (conn) {
           setNetworkType(conn.effectiveType || '4g');
-          // Lắng nghe thay đổi mạng
-          conn.addEventListener('change', () => {
-            setNetworkType(conn.effectiveType || '4g');
-          });
+          conn.addEventListener('change', () => setNetworkType(conn.effectiveType || '4g'));
         }
       }
-
-      // Device capability
       const cores = navigator.hardwareConcurrency || 4;
       const memory = (navigator as any).deviceMemory || 4;
-      if (cores >= 8 && memory >= 6) {
-        deviceCapabilityRef.current = 'high';
-      } else if (cores >= 4 && memory >= 4) {
-        deviceCapabilityRef.current = 'medium';
-      } else {
-        deviceCapabilityRef.current = 'low';
-      }
+      if (cores >= 8 && memory >= 6) deviceCapabilityRef.current = 'high';
+      else if (cores >= 4 && memory >= 4) deviceCapabilityRef.current = 'medium';
+      else deviceCapabilityRef.current = 'low';
     };
-
     detectNetworkAndDevice();
   }, []);
 
@@ -334,9 +320,7 @@ export default function RunPage() {
       setIsDataLoaded(true);
       setIsAuthLoading(false);
 
-      setTimeout(() => {
-        setIsPageReady(true);
-      }, 700);
+      setTimeout(() => setIsPageReady(true), 700);
     };
     init();
   }, [refreshUserData]);
@@ -489,7 +473,6 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion, getGeolocationOptions]);
 
-  // ==================== CÁC HÀM KHÁC GIỮ NGUYÊN (chỉ tối ưu memo) ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -656,7 +639,6 @@ export default function RunPage() {
     }
   }, []);
 
-  // TỐI ƯU RE-RENDER (giảm Edge Requests gián tiếp)
   const getBigDisplay = useMemo(() => {
     if (isAutoCheckingOnStart) return 'Đang kiểm tra...';
     if (countdown === null) return currentSpeed;
@@ -665,10 +647,21 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
+  // ==================== PAYOS + MB BANK (TÍCH HỢP MỚI) ====================
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
     setShowBuyModal(false);
     setShowPaymentModal(true);
+    setPaymentLink('');
+  };
+
+  const generatePayOSQR = async () => {
+    if (!selectedPackage || !user) return;
+    const memo = `${nickname}_${selectedPackage.name}`;
+    const orderCode = Date.now().toString();
+    const payOSLink = `https://pay.payos.vn/web/${orderCode}?amount=${selectedPackage.price}&description=${encodeURIComponent(memo)}&accountNo=0703926856&accountName=NGUYEN+BINH+MINH&bankCode=MB`;
+    setPaymentLink(payOSLink);
+    navigator.clipboard.writeText(memo).then(() => alert('✅ Đã copy nội dung chuyển khoản!'));
   };
 
   const confirmPayment = async () => {
@@ -687,7 +680,7 @@ export default function RunPage() {
 
     if (error) alert('Lỗi: ' + error.message);
     else {
-      alert('✅ Yêu cầu thanh toán đã gửi!\nAdmin sẽ kiểm tra và cấp gói trong dashboard.');
+      alert('✅ Yêu cầu thanh toán đã được ghi nhận!\nHệ thống sẽ tự động kích hoạt gói khi bạn chuyển khoản thành công qua MB Bank.');
       setShowPaymentModal(false);
       setSelectedPackage(null);
     }
@@ -727,7 +720,6 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-      {/* Phần UI giữ nguyên 100% */}
       {!canStartRun && (
         <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
@@ -828,7 +820,6 @@ export default function RunPage() {
         ) : null}
       </div>
 
-      {/* Các phần Dialog, Result, Buy Modal... giữ nguyên 100% như code cũ */}
       <Dialog>
         <DialogTrigger asChild>
           <Button variant="outline" className="w-full mt-3 py-8 text-2xl">
@@ -940,6 +931,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
+      {/* ==================== PAYMENT MODAL MỚI - MB BANK + QR PAYOS ==================== */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -949,7 +941,7 @@ export default function RunPage() {
             <div className="bg-zinc-900 rounded-2xl p-5 space-y-5">
               <div>
                 <Label>Ngân hàng</Label>
-                <Input value="LP BANK" readOnly className="bg-black/50" />
+                <Input value="MB Bank" readOnly className="bg-black/50" />
               </div>
               <div>
                 <Label>Tên chủ tài khoản</Label>
@@ -958,8 +950,8 @@ export default function RunPage() {
               <div>
                 <Label>Số tài khoản</Label>
                 <div className="flex gap-2">
-                  <Input value="44405006666" readOnly className="bg-black/50 font-mono" />
-                  <Button onClick={() => copyToClipboard('44405006666')}>Copy</Button>
+                  <Input value="0703926856" readOnly className="bg-black/50 font-mono" />
+                  <Button onClick={() => copyToClipboard('0703926856')}>Copy</Button>
                 </div>
               </div>
               <div>
@@ -976,6 +968,21 @@ export default function RunPage() {
               <div className="text-center text-4xl font-black text-cyan-400">
                 {selectedPackage?.price.toLocaleString()}đ
               </div>
+
+              <Button 
+                onClick={generatePayOSQR}
+                className="w-full py-6 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600 text-white font-semibold text-lg flex items-center justify-center gap-3"
+              >
+                <QrCode className="w-6 h-6" />
+                TẠO QR THANH TOÁN NHANH
+              </Button>
+
+              {paymentLink && (
+                <div className="text-center text-sm text-emerald-400">
+                  ✅ Link thanh toán đã sẵn sàng!<br />
+                  <a href={paymentLink} target="_blank" rel="noopener noreferrer" className="underline">Mở link payOS</a>
+                </div>
+              )}
             </div>
 
             <Button onClick={confirmPayment} disabled={isConfirmingPayment} className="w-full py-7 text-lg bg-green-600 hover:bg-green-700">
