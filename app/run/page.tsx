@@ -38,70 +38,72 @@ type Package = {
   max_runs: number;
 };
 
-// ==================== OPTIMIZED REGION DETECTION ====================
+// ==================== OPTIMIZED REGION DETECTION (DỮ LIỆU CHUẨN 2026) ====================
 const VIETNAM_REGIONS = [
-  { name: 'TP.HCM', latMin: 10.4, latMax: 11.2, lngMin: 106.2, lngMax: 107.1 },
-  { name: 'Hà Nội', latMin: 20.8, latMax: 21.4, lngMin: 105.5, lngMax: 106.2 },
-  { name: 'Bình Dương', latMin: 10.8, latMax: 11.1, lngMin: 106.6, lngMax: 107.0 },
-  { name: 'Đồng Nai', latMin: 10.5, latMax: 11.0, lngMin: 106.9, lngMax: 107.3 },
-  { name: 'Bà Rịa - Vũng Tàu', latMin: 10.3, latMax: 10.7, lngMin: 107.0, lngMax: 107.5 },
-  { name: 'Bắc Ninh', latMin: 20.9, latMax: 21.3, lngMin: 105.8, lngMax: 106.1 },
-  { name: 'Hưng Yên', latMin: 21.0, latMax: 21.5, lngMin: 105.6, lngMax: 106.0 },
-  { name: 'Hà Nam', latMin: 20.5, latMax: 21.0, lngMin: 105.3, lngMax: 105.8 },
-  { name: 'Đà Nẵng', latMin: 15.8, latMax: 16.3, lngMin: 107.8, lngMax: 108.5 },
-  { name: 'Quảng Nam', latMin: 15.9, latMax: 16.2, lngMin: 108.1, lngMax: 108.4 },
-  { name: 'Thừa Thiên Huế', latMin: 16.0, latMax: 16.5, lngMin: 107.5, lngMax: 108.0 },
-  { name: 'Khánh Hòa', latMin: 11.8, latMax: 12.5, lngMin: 108.9, lngMax: 109.5 },
-  { name: 'Bình Thuận', latMin: 10.9, latMax: 11.3, lngMin: 108.7, lngMax: 109.2 },
-  { name: 'Quảng Ninh', latMin: 21.8, latMax: 22.3, lngMin: 106.5, lngMax: 107.0 },
-  { name: 'Bình Định', latMin: 13.5, latMax: 14.0, lngMin: 108.9, lngMax: 109.4 },
-  { name: 'Cần Thơ', latMin: 9.8, latMax: 10.3, lngMin: 105.8, lngMax: 106.3 },
-  { name: 'Kiên Giang', latMin: 9.0, latMax: 9.8, lngMin: 104.5, lngMax: 105.5 },
-  { name: 'An Giang', latMin: 10.2, latMax: 10.8, lngMin: 105.0, lngMax: 105.8 },
-  { name: 'Bạc Liêu', latMin: 10.0, latMax: 10.4, lngMin: 105.4, lngMax: 106.0 },
-  { name: 'Bắc Giang', latMin: 21.0, latMax: 21.8, lngMin: 105.8, lngMax: 107.0 },
-  { name: 'Bắc Kạn', latMin: 21.8, latMax: 22.6, lngMin: 105.5, lngMax: 106.5 },
-  { name: 'Bến Tre', latMin: 10.0, latMax: 10.6, lngMin: 106.0, lngMax: 106.8 },
-  { name: 'Bình Phước', latMin: 11.4, latMax: 12.2, lngMin: 106.8, lngMax: 108.0 },
-  { name: 'Cà Mau', latMin: 8.5, latMax: 9.5, lngMin: 104.5, lngMax: 105.5 },
-  { name: 'Cao Bằng', latMin: 22.5, latMax: 23.5, lngMin: 105.5, lngMax: 106.5 },
-  { name: 'Đắk Lắk', latMin: 11.5, latMax: 13.0, lngMin: 107.5, lngMax: 109.0 },
-  { name: 'Đắk Nông', latMin: 11.8, latMax: 12.8, lngMin: 107.0, lngMax: 108.5 },
-  { name: 'Điện Biên', latMin: 21.0, latMax: 22.5, lngMin: 102.0, lngMax: 103.5 },
-  { name: 'Đồng Tháp', latMin: 10.2, latMax: 11.0, lngMin: 105.5, lngMax: 106.5 },
-  { name: 'Gia Lai', latMin: 13.0, latMax: 14.5, lngMin: 107.5, lngMax: 109.0 },
-  { name: 'Hà Giang', latMin: 22.0, latMax: 23.5, lngMin: 104.5, lngMax: 106.0 },
-  { name: 'Hà Tĩnh', latMin: 17.5, latMax: 18.5, lngMin: 105.5, lngMax: 107.0 },
-  { name: 'Hải Dương', latMin: 20.5, latMax: 21.2, lngMin: 106.0, lngMax: 107.0 },
-  { name: 'Hải Phòng', latMin: 20.6, latMax: 21.0, lngMin: 106.5, lngMax: 107.0 },
-  { name: 'Hậu Giang', latMin: 9.5, latMax: 10.5, lngMin: 105.0, lngMax: 106.0 },
-  { name: 'Hòa Bình', latMin: 20.0, latMax: 21.0, lngMin: 105.0, lngMax: 106.0 },
-  { name: 'Lai Châu', latMin: 20.5, latMax: 21.5, lngMin: 106.0, lngMax: 107.0 },
-  { name: 'Lâm Đồng', latMin: 11.0, latMax: 12.5, lngMin: 107.5, lngMax: 108.5 },
-  { name: 'Lạng Sơn', latMin: 21.5, latMax: 22.5, lngMin: 106.0, lngMax: 107.5 },
-  { name: 'Lào Cai', latMin: 21.8, latMax: 22.8, lngMin: 103.5, lngMax: 105.0 },
-  { name: 'Long An', latMin: 10.0, latMax: 11.0, lngMin: 105.5, lngMax: 106.5 },
-  { name: 'Nam Định', latMin: 19.8, latMax: 20.5, lngMin: 105.0, lngMax: 106.5 },
-  { name: 'Nghệ An', latMin: 18.0, latMax: 19.5, lngMin: 104.5, lngMax: 106.0 },
-  { name: 'Ninh Bình', latMin: 19.8, latMax: 20.5, lngMin: 105.5, lngMax: 106.5 },
-  { name: 'Ninh Thuận', latMin: 11.0, latMax: 12.0, lngMin: 108.5, lngMax: 109.5 },
-  { name: 'Phú Thọ', latMin: 20.5, latMax: 21.5, lngMin: 104.5, lngMax: 105.5 },
-  { name: 'Phú Yên', latMin: 12.5, latMax: 13.5, lngMin: 108.5, lngMax: 109.5 },
-  { name: 'Quảng Bình', latMin: 17.0, latMax: 18.0, lngMin: 105.5, lngMax: 107.0 },
-  { name: 'Quảng Ngãi', latMin: 14.5, latMax: 16.0, lngMin: 107.5, lngMax: 109.0 },
-  { name: 'Quảng Trị', latMin: 16.5, latMax: 17.5, lngMin: 106.5, lngMax: 107.5 },
-  { name: 'Sóc Trăng', latMin: 9.0, latMax: 10.0, lngMin: 105.5, lngMax: 106.5 },
-  { name: 'Sơn La', latMin: 20.5, latMax: 21.5, lngMin: 103.0, lngMax: 105.0 },
-  { name: 'Tây Ninh', latMin: 10.8, latMax: 11.8, lngMin: 105.5, lngMax: 106.5 },
-  { name: 'Thái Bình', latMin: 20.0, latMax: 21.0, lngMin: 106.0, lngMax: 107.0 },
-  { name: 'Thái Nguyên', latMin: 21.0, latMax: 22.0, lngMin: 105.0, lngMax: 106.5 },
-  { name: 'Thanh Hóa', latMin: 19.0, latMax: 20.5, lngMin: 104.5, lngMax: 106.0 },
-  { name: 'Tiền Giang', latMin: 10.0, latMax: 10.8, lngMin: 105.8, lngMax: 106.5 },
-  { name: 'Trà Vinh', latMin: 9.5, latMax: 10.5, lngMin: 105.5, lngMax: 106.5 },
-  { name: 'Tuyên Quang', latMin: 21.5, latMax: 22.5, lngMin: 105.0, lngMax: 106.0 },
-  { name: 'Vĩnh Long', latMin: 9.8, latMax: 10.5, lngMin: 105.5, lngMax: 106.2 },
-  { name: 'Vĩnh Phúc', latMin: 20.8, latMax: 21.5, lngMin: 105.2, lngMax: 106.0 },
-  { name: 'Yên Bái', latMin: 21.0, latMax: 22.0, lngMin: 104.0, lngMax: 105.0 },
+  { name: 'TP.HCM', latMin: 10.65, latMax: 10.95, lngMin: 106.35, lngMax: 106.85 },
+  { name: 'Hà Nội', latMin: 20.90, latMax: 21.25, lngMin: 105.65, lngMax: 106.05 },
+  { name: 'Bình Dương', latMin: 10.85, latMax: 11.15, lngMin: 106.55, lngMax: 106.85 },
+  { name: 'Đồng Nai', latMin: 10.70, latMax: 11.15, lngMin: 106.85, lngMax: 107.45 },
+  { name: 'Bà Rịa - Vũng Tàu', latMin: 10.25, latMax: 10.75, lngMin: 107.00, lngMax: 107.55 },
+  { name: 'Bắc Ninh', latMin: 20.95, latMax: 21.25, lngMin: 105.85, lngMax: 106.15 },
+  { name: 'Hưng Yên', latMin: 20.65, latMax: 21.05, lngMin: 105.85, lngMax: 106.15 },
+  { name: 'Hà Nam', latMin: 20.45, latMax: 20.75, lngMin: 105.65, lngMax: 106.05 },
+  { name: 'Đà Nẵng', latMin: 15.85, latMax: 16.15, lngMin: 107.95, lngMax: 108.35 },
+  { name: 'Quảng Nam', latMin: 15.25, latMax: 15.95, lngMin: 107.85, lngMax: 108.45 },
+  { name: 'Thừa Thiên Huế', latMin: 16.10, latMax: 16.55, lngMin: 107.35, lngMax: 108.05 },
+  { name: 'Khánh Hòa', latMin: 11.75, latMax: 12.45, lngMin: 108.85, lngMax: 109.45 },
+  { name: 'Bình Thuận', latMin: 10.75, latMax: 11.35, lngMin: 107.75, lngMax: 108.85 },
+  { name: 'Quảng Ninh', latMin: 20.65, latMax: 21.45, lngMin: 106.35, lngMax: 107.35 },
+  { name: 'Bình Định', latMin: 13.65, latMax: 14.35, lngMin: 108.75, lngMax: 109.35 },
+  { name: 'Cần Thơ', latMin: 9.95, latMax: 10.25, lngMin: 105.65, lngMax: 106.05 },
+  { name: 'Kiên Giang', latMin: 9.45, latMax: 10.35, lngMin: 104.35, lngMax: 105.35 },
+  { name: 'An Giang', latMin: 10.15, latMax: 10.75, lngMin: 104.95, lngMax: 105.65 },
+  { name: 'Bạc Liêu', latMin: 9.15, latMax: 9.65, lngMin: 105.25, lngMax: 105.85 },
+  { name: 'Bắc Giang', latMin: 21.05, latMax: 21.55, lngMin: 105.95, lngMax: 106.75 },
+  { name: 'Bắc Kạn', latMin: 21.95, latMax: 22.55, lngMin: 105.55, lngMax: 106.35 },
+  { name: 'Bến Tre', latMin: 9.95, latMax: 10.45, lngMin: 106.15, lngMax: 106.75 },
+  { name: 'Bình Phước', latMin: 11.35, latMax: 12.05, lngMin: 106.65, lngMax: 107.55 },
+  { name: 'Cà Mau', latMin: 8.65, latMax: 9.35, lngMin: 104.65, lngMax: 105.35 },
+  { name: 'Cao Bằng', latMin: 22.35, latMax: 23.05, lngMin: 105.65, lngMax: 106.45 },
+  { name: 'Đắk Lắk', latMin: 11.95, latMax: 13.05, lngMin: 107.65, lngMax: 108.95 },
+  { name: 'Đắk Nông', latMin: 11.65, latMax: 12.65, lngMin: 107.35, lngMax: 108.35 },
+  { name: 'Điện Biên', latMin: 21.15, latMax: 22.35, lngMin: 102.15, lngMax: 103.35 },
+  { name: 'Đồng Tháp', latMin: 10.15, latMax: 10.85, lngMin: 105.35, lngMax: 106.15 },
+  { name: 'Gia Lai', latMin: 12.85, latMax: 14.35, lngMin: 107.65, lngMax: 108.95 },
+  { name: 'Hà Giang', latMin: 22.35, latMax: 23.35, lngMin: 104.35, lngMax: 105.65 },
+  { name: 'Hà Tĩnh', latMin: 17.85, latMax: 18.55, lngMin: 105.55, lngMax: 106.75 },
+  { name: 'Hải Dương', latMin: 20.65, latMax: 21.15, lngMin: 106.15, lngMax: 106.75 },
+  { name: 'Hải Phòng', latMin: 20.65, latMax: 21.05, lngMin: 106.55, lngMax: 107.05 },
+  { name: 'Hậu Giang', latMin: 9.65, latMax: 10.15, lngMin: 105.45, lngMax: 106.05 },
+  { name: 'Hòa Bình', latMin: 20.15, latMax: 21.05, lngMin: 104.85, lngMax: 105.85 },
+  { name: 'Lai Châu', latMin: 21.85, latMax: 22.55, lngMin: 102.85, lngMax: 103.85 },
+  { name: 'Lâm Đồng', latMin: 11.15, latMax: 12.35, lngMin: 107.35, lngMax: 108.55 },
+  { name: 'Lạng Sơn', latMin: 21.65, latMax: 22.35, lngMin: 106.05, lngMax: 107.05 },
+  { name: 'Lào Cai', latMin: 21.85, latMax: 22.65, lngMin: 103.65, lngMax: 104.65 },
+  { name: 'Long An', latMin: 10.45, latMax: 11.05, lngMin: 105.65, lngMax: 106.35 },
+  { name: 'Nam Định', latMin: 19.95, latMax: 20.45, lngMin: 105.85, lngMax: 106.45 },
+  { name: 'Nghệ An', latMin: 18.35, latMax: 19.45, lngMin: 104.45, lngMax: 105.85 },
+  { name: 'Ninh Bình', latMin: 19.95, latMax: 20.45, lngMin: 105.65, lngMax: 106.35 },
+  { name: 'Ninh Thuận', latMin: 11.35, latMax: 12.05, lngMin: 108.75, lngMax: 109.35 },
+  { name: 'Phú Thọ', latMin: 20.85, latMax: 21.45, lngMin: 104.65, lngMax: 105.45 },
+  { name: 'Phú Yên', latMin: 12.85, latMax: 13.55, lngMin: 108.95, lngMax: 109.45 },
+  { name: 'Quảng Bình', latMin: 17.15, latMax: 17.95, lngMin: 105.75, lngMax: 106.95 },
+  { name: 'Quảng Ngãi', latMin: 14.65, latMax: 15.35, lngMin: 108.15, lngMax: 109.05 },
+  { name: 'Quảng Trị', latMin: 16.35, latMax: 17.05, lngMin: 106.85, lngMax: 107.45 },
+  { name: 'Sóc Trăng', latMin: 9.45, latMax: 10.05, lngMin: 105.65, lngMax: 106.15 },
+  { name: 'Sơn La', latMin: 20.65, latMax: 21.45, lngMin: 103.15, lngMax: 104.65 },
+  { name: 'Tây Ninh', latMin: 11.05, latMax: 11.65, lngMin: 105.95, lngMax: 106.55 },
+  { name: 'Thái Bình', latMin: 20.25, latMax: 20.75, lngMin: 106.15, lngMax: 106.75 },
+  { name: 'Thái Nguyên', latMin: 21.35, latMax: 21.95, lngMin: 105.65, lngMax: 106.35 },
+  { name: 'Thanh Hóa', latMin: 19.35, latMax: 20.35, lngMin: 104.75, lngMax: 106.05 },
+  { name: 'Tiền Giang', latMin: 10.25, latMax: 10.75, lngMin: 105.85, lngMax: 106.45 },
+  { name: 'Trà Vinh', latMin: 9.65, latMax: 10.15, lngMin: 105.85, lngMax: 106.45 },
+  { name: 'Tuyên Quang', latMin: 21.65, latMax: 22.35, lngMin: 104.95, lngMax: 105.75 },
+  { name: 'Vĩnh Long', latMin: 9.95, latMax: 10.35, lngMin: 105.65, lngMax: 106.15 },
+  { name: 'Vĩnh Phúc', latMin: 21.15, latMax: 21.55, lngMin: 105.35, lngMax: 105.85 },
+  { name: 'Yên Bái', latMin: 21.35, latMax: 22.05, lngMin: 104.15, lngMax: 105.05 },
+  // Fallback
+  { name: 'Việt Nam', latMin: 8.0, latMax: 24.0, lngMin: 102.0, lngMax: 110.0 },
 ] as const;
 
 const getRegionFromCoords = (lat: number, lng: number): string => {
@@ -132,7 +134,6 @@ export default function RunPage() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [isDataLoaded, setIsDataLoaded] = useState(false);
 
-  // LOCK 3 GIÂY ĐẦU SAU LOAD (SIÊU CẤP VŨ TRỤ)
   const [isPageReady, setIsPageReady] = useState(false);
 
   const [freeRunsUsed, setFreeRunsUsed] = useState(0);
@@ -172,7 +173,6 @@ export default function RunPage() {
   const [isStarting, setIsStarting] = useState(false);
   const [isAutoCheckingOnStart, setIsAutoCheckingOnStart] = useState(false);
 
-  // LOCK chống spam (kết hợp 3 giây đầu)
   const isStartingRunRef = useRef(false);
 
   const resultRef = useRef<HTMLDivElement>(null);
@@ -250,14 +250,12 @@ export default function RunPage() {
     return finalSpeed;
   }, []);
 
-  // ==================== LAZY PACKAGES ====================
   const loadPackages = useCallback(async () => {
     if (packages.length > 0) return;
     const { data } = await supabase.from('packages').select('*').eq('is_active', true).order('price');
     setPackages(data || []);
   }, [packages.length]);
 
-  // ==================== REFRESH USER DATA ====================
   const refreshUserData = useCallback(async () => {
     if (!user?.id) return;
     const [{ data: profile }, { data: sub }] = await Promise.all([
@@ -272,7 +270,6 @@ export default function RunPage() {
     setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
   }, [user]);
 
-  // ==================== INIT + 3 GIÂY LOCK ====================
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
@@ -291,7 +288,6 @@ export default function RunPage() {
       setIsDataLoaded(true);
       setIsAuthLoading(false);
 
-      // SIÊU CẤP VŨ TRỤ: Khóa nút START 3 giây sau khi load xong
       setTimeout(() => {
         setIsPageReady(true);
       }, 700);
@@ -333,7 +329,6 @@ export default function RunPage() {
     );
   }, []);
 
-  // ==================== START RUN (ANTI-SPAM + 3 GIÂY LOCK) ====================
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting || isStartingRunRef.current || !isPageReady) return;
 
@@ -400,7 +395,7 @@ export default function RunPage() {
 
             const targetSpeed = calculateFusedSpeed(gpsSpeedMs);
 
-            if (now - lastSpeedUpdateRef.current > 80) {
+            if (now - lastSpeedUpdateRef.current > 60) { // tối ưu mượt hơn
               setCurrentSpeed((prev) => {
                 const newDisplayed = Math.round(prev * 0.32 + targetSpeed * 0.68);
                 displayedSpeedRef.current = newDisplayed;
@@ -446,7 +441,6 @@ export default function RunPage() {
     }, 1000);
   }, [calculateFusedSpeed, startDeviceMotion]);
 
-  // ==================== STOP RUN ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -483,6 +477,9 @@ export default function RunPage() {
       return;
     }
 
+    // === FIX: Refresh subscription ngay trước khi quyết định lưu ===
+    await refreshUserData(); // đảm bảo hasActiveSub mới nhất
+
     const isTrialRun = !hasActiveSub;
 
     if (isTrialRun) {
@@ -491,26 +488,45 @@ export default function RunPage() {
       setFreeRunsUsed(newUsed);
     }
 
-    if (!isTrialRun) {
-      await supabase.from('runs').insert({
-        user_id: user.id,
-        vehicle_id: selectedVehicle.id,
-        max_speed: finalMaxSpeed,
-        zero_to_sixty: null,
-        zero_to_hundred: zeroToHundred,
-        distance_to_max_speed: null,
-        gps_data: [],
-        start_lat: null,
-        start_lng: null,
-        end_lat: null,
-        end_lng: null,
-        region: currentRegion,
-        gps_accuracy: 'Good',
-        is_low_accuracy: false,
-        ai_analysis: null,
-        ai_verified: false,
-      });
+    try {
+      if (!isTrialRun) {
+        const { error } = await supabase.from('runs').insert({
+          user_id: user.id,
+          vehicle_id: selectedVehicle.id,
+          max_speed: finalMaxSpeed,
+          zero_to_sixty: null,
+          zero_to_hundred: zeroToHundred,
+          distance_to_max_speed: null,
+          gps_data: [],
+          start_lat: null,
+          start_lng: null,
+          end_lat: null,
+          end_lng: null,
+          region: currentRegion,
+          gps_accuracy: 'Good',
+          is_low_accuracy: false,
+          ai_analysis: null,
+          ai_verified: false,
+          is_trial_run: false,
+        });
 
+        if (error) console.error('Lỗi insert run:', error);
+      } else {
+        // trial run vẫn insert nhưng đánh dấu
+        await supabase.from('runs').insert({
+          user_id: user.id,
+          vehicle_id: selectedVehicle.id,
+          max_speed: finalMaxSpeed,
+          zero_to_hundred: zeroToHundred,
+          region: currentRegion,
+          is_trial_run: true,
+        });
+      }
+    } catch (err) {
+      console.error('Lỗi khi lưu run:', err);
+    }
+
+    if (!isTrialRun) {
       const processInBackground = async () => {
         try {
           const today = new Date().toISOString().split('T')[0];
@@ -635,7 +651,6 @@ export default function RunPage() {
     navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
   };
 
-  // ==================== RENDER ====================
   if (isAuthLoading || !isDataLoaded) {
     return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang tải dữ liệu người dùng...</div>;
   }
