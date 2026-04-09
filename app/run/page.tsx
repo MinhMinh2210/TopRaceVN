@@ -745,9 +745,8 @@ export default function RunPage() {
         if (result.code === '00' && result.data) {
           const qr = result.data.qrCode;
           if (qr) {
-            // Xử lý cả 2 trường hợp: full data URL hoặc chỉ base64
             if (qr.startsWith('data:image')) {
-              setPayOsQrCode(qr.split(',')[1]); // lấy phần base64
+              setPayOsQrCode(qr.split(',')[1]);
             } else {
               setPayOsQrCode(qr);
             }
@@ -1012,11 +1011,15 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* PAYMENT MODAL - QR PAYOS TRỰC TIẾP */}
+      {/* PAYMENT MODAL - QR PAYOS TRỰC TIẾP + FIX WARNING */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
             <DialogTitle>Thanh toán {selectedPackage?.display_name}</DialogTitle>
+            {/* FIX WARNING: Thêm DialogDescription nhưng ẩn hoàn toàn */}
+            <DialogDescription className="sr-only">
+              Thanh toán gói {selectedPackage?.display_name} qua PayOS bằng cách quét mã QR
+            </DialogDescription>
           </DialogHeader>
           <div className="space-y-6 py-4">
             <div className="bg-zinc-900 rounded-2xl p-5 space-y-5 text-center">
