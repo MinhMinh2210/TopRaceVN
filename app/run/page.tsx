@@ -38,10 +38,10 @@ type Package = {
   max_runs: number;
 };
 
-// ==================== PAYOS CONFIG (THAY BẰNG THÔNG TIN CỦA BẠN) ====================
-const PAYOS_CLIENT_ID = '389b4719-a094-4709-b374-a49571ceef06';     // ← Lấy từ PayOS Dashboard
-const PAYOS_API_KEY = 'edb7ac6b-c7c4-47d6-997e-abacdc41d4fd';         // ← Lấy từ PayOS Dashboard
-const PAYOS_CHECKSUM_KEY = '791afbe2562cda64b4a8924c25a45610644735cd2f310060e9cc52cd823a0e93'; // ← Giữ nguyên như webhook
+// ==================== PAYOS CONFIG ====================
+const PAYOS_CLIENT_ID = '389b4719-a094-4709-b374-a49571ceef06';
+const PAYOS_API_KEY = 'edb7ac6b-c7c4-47d6-997e-abacdc41d4fd';
+const PAYOS_CHECKSUM_KEY = '791afbe2562cda64b4a8924c25a45610644735cd2f310060e9cc52cd823a0e93';
 
 // ==================== OPTIMIZED REGION DETECTION (DỮ LIỆU CHUẨN 2026) ====================
 const VIETNAM_REGIONS = [
@@ -661,7 +661,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (AUTO WEBHOOK) ====================
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (ĐÃ FIX LỖI) ====================
   const openPaymentModal = async (pkg: any) => {
     if (!user || !pkg) return;
 
@@ -670,7 +670,6 @@ export default function RunPage() {
     setShowPaymentModal(true);
     setPaymentLink('');
 
-    // Tạo record payment_logs ngay (giống hệt code cũ)
     const memo = `toprace${pkg.name}`;
 
     const { error } = await supabase.from('payment_logs').insert({
@@ -687,33 +686,36 @@ export default function RunPage() {
     }
   };
 
-  // Tự động tạo PayOS Order (để webhook tự động trigger)
+  // Tạo PayOS Order (đã fix description ngắn + signature đúng)
   useEffect(() => {
     if (!showPaymentModal || !selectedPackage) return;
 
     const createPayOSOrder = async () => {
       try {
-        const memo = `toprace${selectedPackage.name}`;
-        const orderCode = Math.floor(Date.now() / 1000); // unique
+        const shortDescription = `toprace-${selectedPackage.name}`.slice(0, 20);
+        const orderCode = Math.floor(Date.now() / 1000);
 
         const requestBody = {
           orderCode,
           amount: selectedPackage.price,
-          description: memo,
-          items: [
-            {
-              name: selectedPackage.display_name,
-              quantity: 1,
-              price: selectedPackage.price,
-            },
-          ],
-          returnUrl: `${window.location.origin}/run`,
-          cancelUrl: `${window.location.origin}/run`,
+          description: shortDescription,
+          items: [{
+            name: selectedPackage.display_name,
+            quantity: 1,
+            price: selectedPackage.price,
+          }],
+          returnUrl: `${window.location.origin}/run?success=true`,
+          cancelUrl: `${window.location.origin}/run?cancel=true`,
         };
 
-        // Tính signature (giống hệt webhook)
+        // Tính signature đúng format PayOS
         const sortedKeys = Object.keys(requestBody).sort();
-        const dataString = sortedKeys.map(key => `${key}=${(requestBody as any)[key]}`).join('&');
+        const dataString = sortedKeys
+          .map(key => {
+            const value = (requestBody as any)[key];
+            return `${key}=${Array.isArray(value) ? JSON.stringify(value) : value}`;
+          })
+          .join('&');
 
         const encoder = new TextEncoder();
         const keyData = encoder.encode(PAYOS_CHECKSUM_KEY);
@@ -737,11 +739,11 @@ export default function RunPage() {
         const result = await response.json();
 
         if (result.code === '00' && result.data?.checkoutUrl) {
-          setPaymentLink(result.data.checkoutUrl); // PayOS checkout page (có QR + các phương thức thanh toán)
+          setPaymentLink(result.data.checkoutUrl);
           console.log('✅ PayOS order created successfully');
         } else {
           console.error('PayOS error:', result);
-          alert('Không thể tạo link thanh toán PayOS. Vui lòng thử lại.');
+          alert(`Lỗi PayOS: ${result.desc || JSON.stringify(result)}`);
         }
       } catch (err) {
         console.error('Lỗi tạo PayOS order:', err);
@@ -996,7 +998,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* PAYMENT MODAL - ĐÃ CHUYỂN SANG PAYOS (AUTO WEBHOOK) */}
+      {/* PAYMENT MODAL - PAYOS */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
