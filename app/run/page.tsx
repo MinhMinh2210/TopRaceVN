@@ -149,6 +149,7 @@ export default function RunPage() {
 
   // ==================== QR PAYOS TRIỆT ĐỂ ====================
   const [payOsQrCode, setPayOsQrCode] = useState<string>('');
+  const [payOsCheckoutUrl, setPayOsCheckoutUrl] = useState<string>('');
   const [showQrFallback, setShowQrFallback] = useState(false);
 
   const canStartRun = hasActiveSub || freeRunsUsed < 2;
@@ -673,6 +674,7 @@ export default function RunPage() {
     setShowPaymentModal(true);
     setPaymentLink('');
     setPayOsQrCode('');
+    setPayOsCheckoutUrl('');
     setShowQrFallback(false);
 
     const memo = `toprace${pkg.name}`;
@@ -746,18 +748,30 @@ export default function RunPage() {
 
         if (result.code === '00' && result.data) {
           const rawQr = result.data.qrCode;
+          const checkoutUrl = result.data.checkoutUrl;
 
           console.log('🔍 Raw qrCode from PayOS:', rawQr ? rawQr.substring(0, 80) + '...' : 'null');
           console.log('📏 qrCode length:', rawQr ? rawQr.length : 0);
 
+          if (checkoutUrl) {
+            setPayOsCheckoutUrl(checkoutUrl);
+          }
+
           if (rawQr) {
-            let finalQr = rawQr.trim();
-            if (!finalQr.startsWith('data:image')) {
-              finalQr = `data:image/png;base64,${finalQr}`;
+            // Nếu là chuỗi VietQR raw (bắt đầu bằng 000201) → fallback ngay
+            if (rawQr.startsWith('000201')) {
+              console.log('⚠️ PayOS trả raw VietQR string → dùng checkoutUrl');
+              setShowQrFallback(true);
+            } else {
+              // Nếu là base64 image thật
+              let finalQr = rawQr.trim();
+              if (!finalQr.startsWith('data:image')) {
+                finalQr = `data:image/png;base64,${finalQr}`;
+              }
+              setPayOsQrCode(finalQr);
+              console.log('✅ PayOS QR code ready to render');
             }
-            setPayOsQrCode(finalQr);
-            console.log('✅ PayOS QR code ready to render');
-          } else if (result.data.checkoutUrl) {
+          } else if (checkoutUrl) {
             setShowQrFallback(true);
           }
         } else {
@@ -771,13 +785,6 @@ export default function RunPage() {
     };
 
     createPayOSOrder();
-
-    // Fallback sau 2 giây nếu QR vẫn trắng
-    const fallbackTimer = setTimeout(() => {
-      if (!payOsQrCode) setShowQrFallback(true);
-    }, 2000);
-
-    return () => clearTimeout(fallbackTimer);
   }, [showPaymentModal, selectedPackage]);
 
   const copyToClipboard = (text: string) => {
@@ -1024,7 +1031,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* PAYMENT MODAL - QR PAYOS TRIỆT ĐỂ + FALLBACK */}
+      {/* PAYMENT MODAL - QR PAYOS TRIỆT ĐỂ + FALLBACK ĐÚNG */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -1042,8 +1049,8 @@ export default function RunPage() {
                     alt="Mã QR PayOS"
                     className="mx-auto w-64 h-64 bg-white p-4 rounded-3xl shadow-md"
                     onLoad={() => console.log('✅ QR image rendered successfully')}
-                    onError={(e) => {
-                      console.error('❌ QR image failed to render. src:', e.currentTarget.src);
+                    onError={() => {
+                      console.error('❌ QR image failed to render');
                       setShowQrFallback(true);
                     }}
                   />
@@ -1057,8 +1064,12 @@ export default function RunPage() {
                   {showQrFallback ? (
                     <>
                       <div className="text-amber-400 text-sm mb-4">QR không hiển thị, dùng link thay thế</div>
-                      <Button asChild className="w-full bg-emerald-600 hover:bg-emerald-700">
-                        <a href={selectedPackage ? `${window.location.origin}/run` : '#'} target="_blank" rel="noopener noreferrer">
+                      <Button 
+                        asChild 
+                        className="w-full bg-emerald-600 hover:bg-emerald-700"
+                        onClick={() => payOsCheckoutUrl && window.open(payOsCheckoutUrl, '_blank')}
+                      >
+                        <a href={payOsCheckoutUrl} target="_blank" rel="noopener noreferrer">
                           <QrCode className="mr-3 h-6 w-6" />
                           Mở trang thanh toán PayOS
                         </a>
