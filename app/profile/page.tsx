@@ -343,7 +343,7 @@ export default function MyProfilePage() {
           </CardTitle>
         </CardHeader>
         <CardContent className="text-center text-zinc-400 py-6">
-          Nhấn để xem 3 lần chạy gần nhất của bạn
+          Nhấn để xem 3 lần chạy gần nhất của bạn.
         </CardContent>
       </Card>
 
