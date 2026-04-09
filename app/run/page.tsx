@@ -671,7 +671,7 @@ export default function RunPage() {
     setShowBuyModal(false);
     setShowPaymentModal(true);
     setPaymentLink('');
-    setPayOsQrCode(''); // reset QR
+    setPayOsQrCode('');
 
     const memo = `toprace${pkg.name}`;
 
@@ -743,9 +743,14 @@ export default function RunPage() {
         const result = await response.json();
 
         if (result.code === '00' && result.data) {
-          // Lấy QR code trực tiếp từ PayOS
-          if (result.data.qrCode) {
-            setPayOsQrCode(result.data.qrCode);
+          const qr = result.data.qrCode;
+          if (qr) {
+            // Xử lý cả 2 trường hợp: full data URL hoặc chỉ base64
+            if (qr.startsWith('data:image')) {
+              setPayOsQrCode(qr.split(',')[1]); // lấy phần base64
+            } else {
+              setPayOsQrCode(qr);
+            }
             console.log('✅ PayOS QR code loaded successfully');
           } else if (result.data.checkoutUrl) {
             setPaymentLink(result.data.checkoutUrl);
@@ -1018,7 +1023,7 @@ export default function RunPage() {
               {payOsQrCode ? (
                 <div className="flex flex-col items-center gap-4">
                   <img
-                    src={`data:image/png;base64,${payOsQrCode}`}
+                    src={payOsQrCode.startsWith('data:') ? payOsQrCode : `data:image/png;base64,${payOsQrCode}`}
                     alt="Mã QR PayOS"
                     className="mx-auto w-64 h-64 bg-white p-4 rounded-3xl shadow-md"
                   />
