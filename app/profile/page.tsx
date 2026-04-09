@@ -235,7 +235,7 @@ export default function MyProfilePage() {
             <div className="mx-auto w-20 h-20 bg-zinc-800 rounded-2xl flex items-center justify-center mb-6">
               <Car className="w-10 h-10 text-green-500" />
             </div>
-            <h1 className="text-3xl font-black mb-2">Chào mừng trở lại!</h1>
+            <h1 className="text-3xl font-black mb-2">Chào mừng trở lại !</h1>
             <p className="text-zinc-400 mb-8">Đăng nhập để xem profile và lịch sử Run của bạn</p>
             <Button
               onClick={() =>
