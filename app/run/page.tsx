@@ -643,7 +643,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== PAYOS + MB BANK (ĐÃ SỬA THEO YÊU CẦU) ====================
+  // ==================== THANH TOÁN MỚI (MEMO + QR) ====================
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
     setShowBuyModal(false);
@@ -653,12 +653,22 @@ export default function RunPage() {
 
   const generatePayOSQR = async () => {
     if (!selectedPackage || !user) return;
-    const memo = `${nickname}_${selectedPackage.name}`;
-    const orderCode = Date.now().toString();
-    const payOSLink = `https://pay.payos.vn/web/${orderCode}?amount=${selectedPackage.price}&description=${encodeURIComponent(memo)}&accountNo=0703926856&accountName=NGUYEN+BINH+MINH&bankCode=MB`;
-    setPaymentLink(payOSLink);
+
+    // Memo mới theo yêu cầu: toprace + mã gói
+    const memo = `toprace${selectedPackage.name}`;
+    
+    const amount = selectedPackage.price;
+    const accountNo = '0703926856';
+    const accountName = 'NGUYEN BINH MINH';
+    const bankCode = '970422'; // NAPAS code của MB Bank
+
+    const vietqrUrl = `https://img.vietqr.io/image/${bankCode}-${accountNo}-compact.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(accountName)}`;
+
+    setPaymentLink(vietqrUrl);
+
+    // Copy memo cho khách
     navigator.clipboard.writeText(memo).then(() => {
-      alert('✅ Đã copy nội dung chuyển khoản!\nDán chính xác vào app ngân hàng (giữ nguyên dấu _).');
+      alert(`✅ Đã copy memo: ${memo}\nQuét QR bên dưới để thanh toán nhanh nhất!`);
     });
   };
 
@@ -906,7 +916,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ==================== PAYMENT MODAL MỚI (QR CODE THỰC TẾ) ==================== */}
+      {/* ==================== PAYMENT MODAL MỚI (QR + MEMO toprace1h) ==================== */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -933,13 +943,13 @@ export default function RunPage() {
                 <Label>Nội dung chuyển khoản</Label>
                 <div className="flex gap-2 bg-black/50 p-3 rounded-xl items-center">
                   <span className="font-mono flex-1 break-all">
-                    {nickname}_{selectedPackage?.name}
+                    toprace{selectedPackage?.name}
                   </span>
-                  <Button size="sm" onClick={() => copyToClipboard(`${nickname}_${selectedPackage?.name}`)}>
+                  <Button size="sm" onClick={() => copyToClipboard(`toprace${selectedPackage?.name}`)}>
                     <Copy className="w-4 h-4" />
                   </Button>
                 </div>
-                <p className="text-xs text-amber-400 mt-1">* Copy chính xác, giữ nguyên dấu _</p>
+                <p className="text-xs text-amber-400 mt-1">* Dán chính xác, không thêm dấu cách hoặc ký tự khác</p>
               </div>
               <div className="text-center text-4xl font-black text-cyan-400">
                 {selectedPackage?.price.toLocaleString()}đ
@@ -956,9 +966,9 @@ export default function RunPage() {
               {paymentLink && (
                 <div className="flex justify-center bg-white p-4 rounded-2xl">
                   <img 
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=280x280&data=${encodeURIComponent(paymentLink)}`} 
-                    alt="QR Thanh Toán" 
-                    className="rounded-xl"
+                    src={paymentLink} 
+                    alt="QR Thanh Toán MB Bank" 
+                    className="rounded-xl shadow-md"
                   />
                 </div>
               )}
