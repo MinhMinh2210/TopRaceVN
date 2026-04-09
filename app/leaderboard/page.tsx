@@ -22,9 +22,11 @@ type LeaderboardItem = {
   created_at: string;
 };
 
-// ==================== AVATAR OPTIMIZER (VŨ TRỤ - GIẢM EGRESS MẠNH) ====================
-const getOptimizedAvatarUrl = (url: string | null | undefined, size = 96): string => {
-  if (!url) return `https://avatar.vercel.sh/${Math.random().toString(36)}?size=${size}`;
+// ==================== AVATAR OPTIMIZER (VŨ TRỤ + SAFE FALLBACK) ====================
+const getOptimizedAvatarUrl = (url: string | null | undefined, userId: string, size = 96): string => {
+  if (!url) {
+    return `https://avatar.vercel.sh/${userId}?size=${size}`;
+  }
   return `${url}?width=${size}&height=${size}&resize=contain&format=webp&quality=80`;
 };
 
@@ -37,7 +39,6 @@ export default function LeaderboardPage() {
   const [isAuthLoading, setIsAuthLoading] = useState(true);
   const [loading, setLoading] = useState(false);
 
-  // ==================== INIT AUTH ====================
   const checkAuth = useCallback(async () => {
     const currentUser = await getCurrentUser();
     setUser(currentUser);
@@ -48,17 +49,13 @@ export default function LeaderboardPage() {
     checkAuth();
   }, [checkAuth]);
 
-  // ==================== GOOGLE LOGIN ====================
   const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: window.location.origin + '/leaderboard',
-      },
+      options: { redirectTo: window.location.origin + '/leaderboard' },
     });
   }, []);
 
-  // ==================== LOAD DATA (GIỮ NGUYÊN CẤU TRÚC BE) ====================
   const loadData = useCallback(async () => {
     if (!user) return;
     setLoading(true);
@@ -72,34 +69,18 @@ export default function LeaderboardPage() {
         zero_to_hundred,
         region,
         created_at,
-        vehicles (
-          nickname,
-          vehicle_type
-        ),
-        profiles!user_id (
-          avatar_url
-        )
+        vehicles (nickname, vehicle_type),
+        profiles!user_id (avatar_url)
       `)
       .limit(150);
 
-    if (regionFilter !== 'all') {
-      query = query.eq('region', regionFilter);
-    }
-
-    if (typeFilter !== 'all') {
-      query = query.eq('vehicles.vehicle_type', typeFilter);
-    }
+    if (regionFilter !== 'all') query = query.eq('region', regionFilter);
+    if (typeFilter !== 'all') query = query.eq('vehicles.vehicle_type', typeFilter);
 
     if (activeTab === 'speed') {
-      query = query
-        .order('max_speed', { ascending: false })
-        .not('max_speed', 'is', null)
-        .gt('max_speed', 0);
+      query = query.order('max_speed', { ascending: false }).not('max_speed', 'is', null).gt('max_speed', 0);
     } else {
-      query = query
-        .order('zero_to_hundred', { ascending: true })
-        .not('zero_to_hundred', 'is', null)
-        .gt('zero_to_hundred', 0);
+      query = query.order('zero_to_hundred', { ascending: true }).not('zero_to_hundred', 'is', null).gt('zero_to_hundred', 0);
     }
 
     const { data: result, error } = await query;
@@ -112,11 +93,9 @@ export default function LeaderboardPage() {
     }
 
     const bestPerUser = new Map();
-
     (result || []).forEach((item: any) => {
       const userId = item.user_id;
       if (!userId) return;
-
       const existing = bestPerUser.get(userId);
 
       if (activeTab === 'speed') {
@@ -131,13 +110,10 @@ export default function LeaderboardPage() {
     });
 
     let bestRecords = Array.from(bestPerUser.values());
-
-    // ==================== FIX BUG FILTER LOẠI XE (ĐẢM BẢO CHÍNH XÁC 100%) ====================
     if (typeFilter !== 'all') {
       bestRecords = bestRecords.filter((item: any) => item.vehicles?.vehicle_type === typeFilter);
     }
 
-    // ==================== GIỚI HẠN CHỈ 30 NGƯỜI ====================
     const top30 = bestRecords.slice(0, 30);
 
     const formatted = top30.map((item: any, index: number) => ({
@@ -156,21 +132,13 @@ export default function LeaderboardPage() {
   }, [user, activeTab, regionFilter, typeFilter]);
 
   useEffect(() => {
-    if (user) {
-      loadData();
-    }
+    if (user) loadData();
   }, [loadData]);
 
-  // ==================== LOADING AUTH ====================
   if (isAuthLoading) {
-    return (
-      <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">
-        Đang kiểm tra đăng nhập...
-      </div>
-    );
+    return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang kiểm tra đăng nhập...</div>;
   }
 
-  // ==================== CHƯA ĐĂNG NHẬP ====================
   if (!user) {
     return (
       <div className="min-h-screen bg-zinc-950 flex items-center justify-center px-5">
@@ -181,20 +149,11 @@ export default function LeaderboardPage() {
             </div>
             <h1 className="text-3xl font-black mb-2">Bảng Xếp Hạng</h1>
             <p className="text-zinc-400 mb-8">Đăng nhập để xem bảng xếp hạng toàn quốc</p>
-
-            <Button
-              onClick={handleGoogleLogin}
-              className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3"
-            >
+            <Button onClick={handleGoogleLogin} className="w-full py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3">
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Google Login
             </Button>
-
-            <Button
-              variant="outline"
-              className="w-full mt-4 py-6 text-base"
-              onClick={() => window.location.href = '/'}
-            >
+            <Button variant="outline" className="w-full mt-4 py-6 text-base" onClick={() => window.location.href = '/'}>
               ← Quay về trang chủ
             </Button>
           </CardContent>
@@ -203,7 +162,6 @@ export default function LeaderboardPage() {
     );
   }
 
-  // ==================== ĐÃ ĐĂNG NHẬP ====================
   return (
     <div className="min-h-screen bg-zinc-950 pb-20 px-4">
       <div className="max-w-2xl mx-auto">
@@ -315,7 +273,6 @@ export default function LeaderboardPage() {
           <TabsContent value="speed" className="mt-2">
             <LeaderboardTable data={data} type="speed" loading={loading} user={user} />
           </TabsContent>
-
           <TabsContent value="acceleration" className="mt-2">
             <LeaderboardTable data={data} type="acceleration" loading={loading} user={user} />
           </TabsContent>
@@ -339,9 +296,7 @@ function LeaderboardTable({
   if (loading) {
     return (
       <Card className="bg-zinc-900 border-zinc-800 w-full">
-        <CardContent className="p-12 text-center text-zinc-400">
-          Đang tải bảng xếp hạng...
-        </CardContent>
+        <CardContent className="p-12 text-center text-zinc-400">Đang tải bảng xếp hạng...</CardContent>
       </Card>
     );
   }
@@ -349,9 +304,7 @@ function LeaderboardTable({
   if (data.length === 0) {
     return (
       <Card className="bg-zinc-900 border-zinc-800 w-full">
-        <CardContent className="p-12 text-center text-zinc-400">
-          Chưa có dữ liệu run nào. Hãy chạy và ghi lại kết quả đầu tiên!
-        </CardContent>
+        <CardContent className="p-12 text-center text-zinc-400">Chưa có dữ liệu run nào. Hãy chạy và ghi lại kết quả đầu tiên!</CardContent>
       </Card>
     );
   }
@@ -367,23 +320,20 @@ function LeaderboardTable({
         else if (rank === 2) medalColor = 'text-zinc-300';
         else if (rank === 3) medalColor = 'text-amber-600';
 
-        // Tối ưu avatar cho từng item (giảm egress mạnh)
         const optimizedAvatar = useMemo(
-          () => getOptimizedAvatarUrl(item.avatar_url),
-          [item.avatar_url]
+          () => getOptimizedAvatarUrl(item.avatar_url, item.user_id),
+          [item.avatar_url, item.user_id]
         );
 
         return (
           <div
             key={item.rank}
             onClick={() => window.location.href = `/profile/${item.user_id}`}
-            className={`
-              group flex items-center gap-4 rounded-3xl p-5 transition-all hover:scale-[1.02] cursor-pointer
-              ${isCurrentUser 
-                ? 'bg-gradient-to-r from-cyan-950 to-zinc-900 border-2 border-cyan-400 shadow-2xl shadow-cyan-500/30' 
+            className={`group flex items-center gap-4 rounded-3xl p-5 transition-all hover:scale-[1.02] cursor-pointer
+              ${isCurrentUser
+                ? 'bg-gradient-to-r from-cyan-950 to-zinc-900 border-2 border-cyan-400 shadow-2xl shadow-cyan-500/30'
                 : 'bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 hover:border-zinc-600'
-              }
-            `}
+              }`}
           >
             <div className="w-12 flex-shrink-0 flex items-center justify-center">
               {rank <= 3 ? (
@@ -391,9 +341,7 @@ function LeaderboardTable({
                   <Medal className="w-8 h-8 drop-shadow-md" />
                 </div>
               ) : (
-                <div className="text-3xl font-black text-zinc-400 group-hover:text-white transition-colors">
-                  #{rank}
-                </div>
+                <div className="text-3xl font-black text-zinc-400 group-hover:text-white transition-colors">#{rank}</div>
               )}
             </div>
 
@@ -404,14 +352,14 @@ function LeaderboardTable({
                 loading="lazy"
                 className="w-full h-full object-cover transition-transform group-hover:scale-110"
                 onError={(e) => {
+                  if (item.avatar_url && e.currentTarget.src !== item.avatar_url) {
+                    e.currentTarget.src = item.avatar_url;
+                    return;
+                  }
                   e.currentTarget.style.display = 'none';
                   const parent = e.currentTarget.parentElement;
                   if (parent) {
-                    parent.innerHTML = `
-                      <div class="w-full h-full flex items-center justify-center bg-zinc-700 text-zinc-400 text-3xl">
-                        👤
-                      </div>
-                    `;
+                    parent.innerHTML = `<div class="w-full h-full flex items-center justify-center bg-zinc-700 text-zinc-400 text-3xl">👤</div>`;
                   }
                 }}
               />
@@ -424,9 +372,7 @@ function LeaderboardTable({
                     <span className="text-base">👤</span> YOU
                   </span>
                 )}
-                <p className="font-semibold text-white text-lg truncate">
-                  {item.nickname}
-                </p>
+                <p className="font-semibold text-white text-lg truncate">{item.nickname}</p>
               </div>
               <p className="text-zinc-400 text-sm mt-0.5 flex items-center gap-1">
                 {item.region} • {item.vehicle_type.replace(/_/g, ' ')}
@@ -434,9 +380,7 @@ function LeaderboardTable({
             </div>
 
             <div className="text-right">
-              <div className="text-4xl font-black text-emerald-400 tracking-tighter">
-                {item.value}
-              </div>
+              <div className="text-4xl font-black text-emerald-400 tracking-tighter">{item.value}</div>
               <div className="text-xs uppercase font-medium text-zinc-400 mt-px">
                 {type === 'speed' ? 'km/h' : 'giây'}
               </div>
