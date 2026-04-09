@@ -326,7 +326,6 @@ export default function RunPage() {
     init();
   }, [refreshUserData]);
 
-  // Auto reload khi thanh toán thành công
   useEffect(() => {
     if (!showPaymentModal || !user) return;
     const interval = setInterval(async () => {
@@ -661,7 +660,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (ĐÃ FIX LỖI) ====================
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (ĐÃ FIX SIGNATURE) ====================
   const openPaymentModal = async (pkg: any) => {
     if (!user || !pkg) return;
 
@@ -686,7 +685,6 @@ export default function RunPage() {
     }
   };
 
-  // Tạo PayOS Order (đã fix description ngắn + signature đúng)
   useEffect(() => {
     if (!showPaymentModal || !selectedPackage) return;
 
@@ -708,14 +706,17 @@ export default function RunPage() {
           cancelUrl: `${window.location.origin}/run?cancel=true`,
         };
 
-        // Tính signature đúng format PayOS
-        const sortedKeys = Object.keys(requestBody).sort();
-        const dataString = sortedKeys
-          .map(key => {
-            const value = (requestBody as any)[key];
-            return `${key}=${Array.isArray(value) ? JSON.stringify(value) : value}`;
-          })
-          .join('&');
+        // === FIX SIGNATURE: Chỉ tính trên 5 field chính theo yêu cầu PayOS ===
+        const signatureData = {
+          amount: requestBody.amount,
+          cancelUrl: requestBody.cancelUrl,
+          description: requestBody.description,
+          orderCode: requestBody.orderCode,
+          returnUrl: requestBody.returnUrl,
+        };
+
+        const sortedKeys = Object.keys(signatureData).sort();
+        const dataString = sortedKeys.map(key => `${key}=${(signatureData as any)[key]}`).join('&');
 
         const encoder = new TextEncoder();
         const keyData = encoder.encode(PAYOS_CHECKSUM_KEY);
@@ -998,7 +999,6 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* PAYMENT MODAL - PAYOS */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
