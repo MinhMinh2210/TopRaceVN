@@ -321,18 +321,16 @@ export default function RunPage() {
     init();
   }, [refreshUserData]);
 
-  // ==================== AUTO RELOAD SAU KHI THANH TOÁN THÀNH CÔNG ====================
+  // Auto reload khi thanh toán thành công
   useEffect(() => {
     if (!showPaymentModal || !user) return;
-
     const interval = setInterval(async () => {
       await refreshUserData();
       if (hasActiveSub) {
         setShowPaymentModal(false);
-        window.location.reload(); // Tự động load lại trang và cấp quyền
+        window.location.reload();
       }
-    }, 3000); // kiểm tra mỗi 3 giây
-
+    }, 3000);
     return () => clearInterval(interval);
   }, [showPaymentModal, user, hasActiveSub, refreshUserData]);
 
@@ -658,7 +656,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== PAYOS + MB BANK (MEMO toprace + QR) ====================
+  // ==================== PAYMENT MODAL (TỰ ĐỘNG TẠO QR) ====================
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
     setShowBuyModal(false);
@@ -666,21 +664,20 @@ export default function RunPage() {
     setPaymentLink('');
   };
 
-  const generatePayOSQR = async () => {
-    if (!selectedPackage || !user) return;
+  // Tự động tạo QR ngay khi modal mở
+  useEffect(() => {
+    if (!showPaymentModal || !selectedPackage || !user) return;
 
     const memo = `toprace${selectedPackage.name}`;
     const amount = selectedPackage.price;
     const accountNo = '0703926856';
     const accountName = 'NGUYEN BINH MINH';
-    const bankCode = '970422'; // MB Bank
+    const bankCode = '970422';
 
     const vietqrUrl = `https://img.vietqr.io/image/${bankCode}-${accountNo}-compact.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(accountName)}`;
 
     setPaymentLink(vietqrUrl);
-
-    navigator.clipboard.writeText(memo);
-  };
+  }, [showPaymentModal, selectedPackage, user]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
@@ -926,7 +923,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ==================== PAYMENT MODAL (QR VIETQR + AUTO RELOAD) ==================== */}
+      {/* ==================== PAYMENT MODAL MỚI ==================== */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -934,6 +931,17 @@ export default function RunPage() {
           </DialogHeader>
           <div className="space-y-6 py-4">
             <div className="bg-zinc-900 rounded-2xl p-5 space-y-5">
+              {/* QR hiển thị ngay trên đầu */}
+              {paymentLink && (
+                <div className="flex justify-center bg-white p-4 rounded-2xl">
+                  <img 
+                    src={paymentLink} 
+                    alt="QR Thanh Toán MB Bank" 
+                    className="rounded-xl shadow-md"
+                  />
+                </div>
+              )}
+
               <div>
                 <Label>Ngân hàng</Label>
                 <Input value="MB Bank" readOnly className="bg-black/50" />
@@ -964,24 +972,6 @@ export default function RunPage() {
               <div className="text-center text-4xl font-black text-cyan-400">
                 {selectedPackage?.price.toLocaleString()}đ
               </div>
-
-              <Button 
-                onClick={generatePayOSQR}
-                className="w-full py-6 bg-gradient-to-r from-emerald-500 to-cyan-500 hover:from-emerald-600 hover:to-cyan-600 text-white font-semibold text-lg flex items-center justify-center gap-3"
-              >
-                <QrCode className="w-6 h-6" />
-                TẠO QR THANH TOÁN NHANH
-              </Button>
-
-              {paymentLink && (
-                <div className="flex justify-center bg-white p-4 rounded-2xl">
-                  <img 
-                    src={paymentLink} 
-                    alt="QR Thanh Toán MB Bank" 
-                    className="rounded-xl shadow-md"
-                  />
-                </div>
-              )}
             </div>
 
             <Button variant="outline" onClick={() => setShowPaymentModal(false)} className="w-full">Đóng</Button>
