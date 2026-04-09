@@ -38,7 +38,7 @@ type Package = {
   max_runs: number;
 };
 
-// ==================== OPTIMIZED REGION DETECTION (DỮ LIỆU CHUẨN 2026) ====================
+// ==================== REGION DETECTION & GPS (GIỮ NGUYÊN) ====================
 const VIETNAM_REGIONS = [
   { name: 'TP.HCM', latMin: 10.65, latMax: 10.95, lngMin: 106.35, lngMax: 106.85 },
   { name: 'Hà Nội', latMin: 20.90, latMax: 21.25, lngMin: 105.65, lngMax: 106.05 },
@@ -656,28 +656,31 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== PAYMENT MODAL (TỰ ĐỘNG TẠO QR) ====================
-  const openPaymentModal = (pkg: any) => {
+  // ==================== TẠO PAYMENT_LOG + QR TỰ ĐỘNG ====================
+  const openPaymentModal = async (pkg: any) => {
+    if (!user || !pkg) return;
+
     setSelectedPackage(pkg);
     setShowBuyModal(false);
     setShowPaymentModal(true);
     setPaymentLink('');
+
+    // Tạo record payment_logs ngay lập tức với memo mới
+    const memo = `toprace${pkg.name}`;
+
+    const { error } = await supabase.from('payment_logs').insert({
+      user_id: user.id,
+      package_id: pkg.id,
+      amount: pkg.price,
+      memo: memo,
+      status: 'pending',
+    });
+
+    if (error) {
+      console.error('Lỗi tạo payment_log:', error);
+      alert('Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.');
+    }
   };
-
-  // Tự động tạo QR ngay khi modal mở
-  useEffect(() => {
-    if (!showPaymentModal || !selectedPackage || !user) return;
-
-    const memo = `toprace${selectedPackage.name}`;
-    const amount = selectedPackage.price;
-    const accountNo = '0703926856';
-    const accountName = 'NGUYEN BINH MINH';
-    const bankCode = '970422';
-
-    const vietqrUrl = `https://img.vietqr.io/image/${bankCode}-${accountNo}-compact.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(accountName)}`;
-
-    setPaymentLink(vietqrUrl);
-  }, [showPaymentModal, selectedPackage, user]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
@@ -812,6 +815,7 @@ export default function RunPage() {
         ) : null}
       </div>
 
+      {/* Dialog chọn xe */}
       <Dialog>
         <DialogTrigger asChild>
           <Button variant="outline" className="w-full mt-3 py-8 text-2xl">
@@ -923,7 +927,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ==================== PAYMENT MODAL MỚI ==================== */}
+      {/* ==================== PAYMENT MODAL (TỰ ĐỘNG INSERT + QR) ==================== */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -931,12 +935,11 @@ export default function RunPage() {
           </DialogHeader>
           <div className="space-y-6 py-4">
             <div className="bg-zinc-900 rounded-2xl p-5 space-y-5">
-              {/* QR hiển thị ngay trên đầu */}
               {paymentLink && (
                 <div className="flex justify-center bg-white p-4 rounded-2xl">
                   <img 
                     src={paymentLink} 
-                    alt="QR Thanh Toán MB Bank" 
+                    alt="QR Thanh Toán" 
                     className="rounded-xl shadow-md"
                   />
                 </div>
@@ -967,7 +970,7 @@ export default function RunPage() {
                     <Copy className="w-4 h-4" />
                   </Button>
                 </div>
-                <p className="text-xs text-amber-400 mt-1">* Dán chính xác, không thêm dấu cách hoặc ký tự khác</p>
+                <p className="text-xs text-amber-400 mt-1">* Dán chính xác, không thêm dấu cách</p>
               </div>
               <div className="text-center text-4xl font-black text-cyan-400">
                 {selectedPackage?.price.toLocaleString()}đ
