@@ -758,12 +758,10 @@ export default function RunPage() {
           }
 
           if (rawQr) {
-            // Nếu là chuỗi VietQR raw (bắt đầu bằng 000201) → fallback ngay
             if (rawQr.startsWith('000201')) {
               console.log('⚠️ PayOS trả raw VietQR string → dùng checkoutUrl');
               setShowQrFallback(true);
             } else {
-              // Nếu là base64 image thật
               let finalQr = rawQr.trim();
               if (!finalQr.startsWith('data:image')) {
                 finalQr = `data:image/png;base64,${finalQr}`;
@@ -1031,7 +1029,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* PAYMENT MODAL - QR PAYOS TRIỆT ĐỂ + FALLBACK ĐÚNG */}
+      {/* PAYMENT MODAL - QR PAYOS TRIỆT ĐỂ + FALLBACK */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -1049,10 +1047,7 @@ export default function RunPage() {
                     alt="Mã QR PayOS"
                     className="mx-auto w-64 h-64 bg-white p-4 rounded-3xl shadow-md"
                     onLoad={() => console.log('✅ QR image rendered successfully')}
-                    onError={() => {
-                      console.error('❌ QR image failed to render');
-                      setShowQrFallback(true);
-                    }}
+                    onError={() => setShowQrFallback(true)}
                   />
                   <p className="text-sm text-zinc-400 mt-2">
                     Quét mã QR bằng app ngân hàng<br/>
@@ -1061,13 +1056,12 @@ export default function RunPage() {
                 </div>
               ) : (
                 <div className="flex flex-col items-center gap-4 py-8">
-                  {showQrFallback ? (
+                  {showQrFallback && payOsCheckoutUrl ? (
                     <>
                       <div className="text-amber-400 text-sm mb-4">QR không hiển thị, dùng link thay thế</div>
                       <Button 
                         asChild 
                         className="w-full bg-emerald-600 hover:bg-emerald-700"
-                        onClick={() => payOsCheckoutUrl && window.open(payOsCheckoutUrl, '_blank')}
                       >
                         <a href={payOsCheckoutUrl} target="_blank" rel="noopener noreferrer">
                           <QrCode className="mr-3 h-6 w-6" />
