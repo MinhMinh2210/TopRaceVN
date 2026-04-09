@@ -147,8 +147,9 @@ export default function RunPage() {
   const [selectedPackage, setSelectedPackage] = useState<any>(null);
   const [paymentLink, setPaymentLink] = useState<string>('');
 
-  // ==================== QR PAYOS TRỰC TIẾP ====================
+  // ==================== QR PAYOS TRIỆT ĐỂ ====================
   const [payOsQrCode, setPayOsQrCode] = useState<string>('');
+  const [showQrFallback, setShowQrFallback] = useState(false);
 
   const canStartRun = hasActiveSub || freeRunsUsed < 2;
 
@@ -663,7 +664,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER + QR TRỰC TIẾP ====================
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER + QR TRIỆT ĐỂ ====================
   const openPaymentModal = async (pkg: any) => {
     if (!user || !pkg) return;
 
@@ -672,6 +673,7 @@ export default function RunPage() {
     setShowPaymentModal(true);
     setPaymentLink('');
     setPayOsQrCode('');
+    setShowQrFallback(false);
 
     const memo = `toprace${pkg.name}`;
 
@@ -743,28 +745,39 @@ export default function RunPage() {
         const result = await response.json();
 
         if (result.code === '00' && result.data) {
-          const qr = result.data.qrCode;
-          if (qr) {
-            if (qr.startsWith('data:image')) {
-              setPayOsQrCode(qr.split(',')[1]);
-            } else {
-              setPayOsQrCode(qr);
+          const rawQr = result.data.qrCode;
+
+          console.log('🔍 Raw qrCode from PayOS:', rawQr ? rawQr.substring(0, 80) + '...' : 'null');
+          console.log('📏 qrCode length:', rawQr ? rawQr.length : 0);
+
+          if (rawQr) {
+            let finalQr = rawQr.trim();
+            if (!finalQr.startsWith('data:image')) {
+              finalQr = `data:image/png;base64,${finalQr}`;
             }
-            console.log('✅ PayOS QR code loaded successfully');
+            setPayOsQrCode(finalQr);
+            console.log('✅ PayOS QR code ready to render');
           } else if (result.data.checkoutUrl) {
-            setPaymentLink(result.data.checkoutUrl);
+            setShowQrFallback(true);
           }
         } else {
           console.error('PayOS error:', result);
-          alert(`Lỗi PayOS: ${result.desc || JSON.stringify(result)}`);
+          setShowQrFallback(true);
         }
       } catch (err) {
         console.error('Lỗi tạo PayOS order:', err);
-        alert('Lỗi kết nối PayOS. Vui lòng thử lại sau.');
+        setShowQrFallback(true);
       }
     };
 
     createPayOSOrder();
+
+    // Fallback sau 2 giây nếu QR vẫn trắng
+    const fallbackTimer = setTimeout(() => {
+      if (!payOsQrCode) setShowQrFallback(true);
+    }, 2000);
+
+    return () => clearTimeout(fallbackTimer);
   }, [showPaymentModal, selectedPackage]);
 
   const copyToClipboard = (text: string) => {
@@ -1011,24 +1024,28 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* PAYMENT MODAL - QR PAYOS TRỰC TIẾP + FIX WARNING */}
+      {/* PAYMENT MODAL - QR PAYOS TRIỆT ĐỂ + FALLBACK */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
             <DialogTitle>Thanh toán {selectedPackage?.display_name}</DialogTitle>
-            {/* FIX WARNING: Thêm DialogDescription nhưng ẩn hoàn toàn */}
             <DialogDescription className="sr-only">
               Thanh toán gói {selectedPackage?.display_name} qua PayOS bằng cách quét mã QR
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-6 py-4">
             <div className="bg-zinc-900 rounded-2xl p-5 space-y-5 text-center">
-              {payOsQrCode ? (
+              {payOsQrCode && !showQrFallback ? (
                 <div className="flex flex-col items-center gap-4">
                   <img
-                    src={payOsQrCode.startsWith('data:') ? payOsQrCode : `data:image/png;base64,${payOsQrCode}`}
+                    src={payOsQrCode}
                     alt="Mã QR PayOS"
                     className="mx-auto w-64 h-64 bg-white p-4 rounded-3xl shadow-md"
+                    onLoad={() => console.log('✅ QR image rendered successfully')}
+                    onError={(e) => {
+                      console.error('❌ QR image failed to render. src:', e.currentTarget.src);
+                      setShowQrFallback(true);
+                    }}
                   />
                   <p className="text-sm text-zinc-400 mt-2">
                     Quét mã QR bằng app ngân hàng<br/>
@@ -1036,8 +1053,20 @@ export default function RunPage() {
                   </p>
                 </div>
               ) : (
-                <div className="flex justify-center py-12">
-                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500"></div>
+                <div className="flex flex-col items-center gap-4 py-8">
+                  {showQrFallback ? (
+                    <>
+                      <div className="text-amber-400 text-sm mb-4">QR không hiển thị, dùng link thay thế</div>
+                      <Button asChild className="w-full bg-emerald-600 hover:bg-emerald-700">
+                        <a href={selectedPackage ? `${window.location.origin}/run` : '#'} target="_blank" rel="noopener noreferrer">
+                          <QrCode className="mr-3 h-6 w-6" />
+                          Mở trang thanh toán PayOS
+                        </a>
+                      </Button>
+                    </>
+                  ) : (
+                    <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500"></div>
+                  )}
                 </div>
               )}
 
