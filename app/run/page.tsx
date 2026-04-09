@@ -43,7 +43,7 @@ const PAYOS_CLIENT_ID = '389b4719-a094-4709-b374-a49571ceef06';
 const PAYOS_API_KEY = 'edb7ac6b-c7c4-47d6-997e-abacdc41d4fd';
 const PAYOS_CHECKSUM_KEY = '791afbe2562cda64b4a8924c25a45610644735cd2f310060e9cc52cd823a0e93';
 
-// ==================== OPTIMIZED REGION DETECTION (DỮ LIỆU CHUẨN 2026) ====================
+// ==================== OPTIMIZED REGION DETECTION ====================
 const VIETNAM_REGIONS = [
   { name: 'TP.HCM', latMin: 10.65, latMax: 10.95, lngMin: 106.35, lngMax: 106.85 },
   { name: 'Hà Nội', latMin: 20.90, latMax: 21.25, lngMin: 105.65, lngMax: 106.05 },
@@ -660,7 +660,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (ĐÃ FIX SIGNATURE) ====================
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (ĐÃ ĐỒNG BỘ MEMO) ====================
   const openPaymentModal = async (pkg: any) => {
     if (!user || !pkg) return;
 
@@ -690,13 +690,13 @@ export default function RunPage() {
 
     const createPayOSOrder = async () => {
       try {
-        const shortDescription = `toprace-${selectedPackage.name}`.slice(0, 20);
+        const memo = `toprace${selectedPackage.name}`;   // ← ĐỒNG BỘ với payment_logs
         const orderCode = Math.floor(Date.now() / 1000);
 
         const requestBody = {
           orderCode,
           amount: selectedPackage.price,
-          description: shortDescription,
+          description: memo,                    // ← Dùng chung memo
           items: [{
             name: selectedPackage.display_name,
             quantity: 1,
@@ -706,7 +706,7 @@ export default function RunPage() {
           cancelUrl: `${window.location.origin}/run?cancel=true`,
         };
 
-        // === FIX SIGNATURE: Chỉ tính trên 5 field chính theo yêu cầu PayOS ===
+        // Signature chỉ tính trên 5 field chính (theo chuẩn PayOS)
         const signatureData = {
           amount: requestBody.amount,
           cancelUrl: requestBody.cancelUrl,
@@ -788,6 +788,7 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
+      {/* Phần còn lại của UI giữ nguyên 100% như code cũ */}
       {!canStartRun && (
         <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
