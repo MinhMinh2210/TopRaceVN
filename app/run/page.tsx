@@ -38,7 +38,7 @@ type Package = {
   max_runs: number;
 };
 
-// ==================== REGION DETECTION & GPS (GIỮ NGUYÊN) ====================
+// ==================== OPTIMIZED REGION DETECTION (DỮ LIỆU CHUẨN 2026) ====================
 const VIETNAM_REGIONS = [
   { name: 'TP.HCM', latMin: 10.65, latMax: 10.95, lngMin: 106.35, lngMax: 106.85 },
   { name: 'Hà Nội', latMin: 20.90, latMax: 21.25, lngMin: 105.65, lngMax: 106.05 },
@@ -665,7 +665,7 @@ export default function RunPage() {
     setShowPaymentModal(true);
     setPaymentLink('');
 
-    // Tạo record payment_logs ngay lập tức với memo mới
+    // Tạo record payment_logs ngay
     const memo = `toprace${pkg.name}`;
 
     const { error } = await supabase.from('payment_logs').insert({
@@ -681,6 +681,21 @@ export default function RunPage() {
       alert('Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.');
     }
   };
+
+  // Tự động tạo QR ngay khi modal mở
+  useEffect(() => {
+    if (!showPaymentModal || !selectedPackage) return;
+
+    const memo = `toprace${selectedPackage.name}`;
+    const amount = selectedPackage.price;
+    const accountNo = '0703926856';
+    const accountName = 'NGUYEN BINH MINH';
+    const bankCode = '970422';
+
+    const vietqrUrl = `https://img.vietqr.io/image/${bankCode}-${accountNo}-compact.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(accountName)}`;
+
+    setPaymentLink(vietqrUrl);
+  }, [showPaymentModal, selectedPackage]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
@@ -815,7 +830,6 @@ export default function RunPage() {
         ) : null}
       </div>
 
-      {/* Dialog chọn xe */}
       <Dialog>
         <DialogTrigger asChild>
           <Button variant="outline" className="w-full mt-3 py-8 text-2xl">
@@ -927,7 +941,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ==================== PAYMENT MODAL (TỰ ĐỘNG INSERT + QR) ==================== */}
+      {/* PAYMENT MODAL */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
