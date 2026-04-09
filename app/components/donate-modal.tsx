@@ -59,7 +59,7 @@ export default function DonateModal() {
             🚨 THÔNG BÁO THU PHÍ - TRÁNH SPAM - FAKE GPS 🚨
           </DialogTitle>
           <DialogDescription className="text-center text-zinc-400 text-base leading-relaxed">
-            Admin xin phép thu phí để tránh hiện trường vào fake gps và spam run ảo. Mức phí rất nhỏ chỉ từ 5k !
+            Admin xin phép thu phí để tránh hiện trường vào fake gps và spam run ảo.
           </DialogDescription>
         </DialogHeader>
 

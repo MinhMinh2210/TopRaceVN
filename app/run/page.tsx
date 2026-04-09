@@ -147,6 +147,9 @@ export default function RunPage() {
   const [selectedPackage, setSelectedPackage] = useState<any>(null);
   const [paymentLink, setPaymentLink] = useState<string>('');
 
+  // ==================== THÊM STATE QR PAYOS TRỰC TIẾP ====================
+  const [payOsQrCode, setPayOsQrCode] = useState<string>('');
+
   const canStartRun = hasActiveSub || freeRunsUsed < 2;
 
   const [isRunning, setIsRunning] = useState(false);
@@ -660,7 +663,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (ĐÃ ĐỒNG BỘ MEMO) ====================
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER + QR TRỰC TIẾP ====================
   const openPaymentModal = async (pkg: any) => {
     if (!user || !pkg) return;
 
@@ -668,6 +671,7 @@ export default function RunPage() {
     setShowBuyModal(false);
     setShowPaymentModal(true);
     setPaymentLink('');
+    setPayOsQrCode(''); // reset QR
 
     const memo = `toprace${pkg.name}`;
 
@@ -690,13 +694,13 @@ export default function RunPage() {
 
     const createPayOSOrder = async () => {
       try {
-        const memo = `toprace${selectedPackage.name}`;   // ← ĐỒNG BỘ với payment_logs
+        const memo = `toprace${selectedPackage.name}`;
         const orderCode = Math.floor(Date.now() / 1000);
 
         const requestBody = {
           orderCode,
           amount: selectedPackage.price,
-          description: memo,                    // ← Dùng chung memo
+          description: memo,
           items: [{
             name: selectedPackage.display_name,
             quantity: 1,
@@ -706,7 +710,6 @@ export default function RunPage() {
           cancelUrl: `${window.location.origin}/run?cancel=true`,
         };
 
-        // Signature chỉ tính trên 5 field chính (theo chuẩn PayOS)
         const signatureData = {
           amount: requestBody.amount,
           cancelUrl: requestBody.cancelUrl,
@@ -739,9 +742,14 @@ export default function RunPage() {
 
         const result = await response.json();
 
-        if (result.code === '00' && result.data?.checkoutUrl) {
-          setPaymentLink(result.data.checkoutUrl);
-          console.log('✅ PayOS order created successfully');
+        if (result.code === '00' && result.data) {
+          // Lấy QR code trực tiếp từ PayOS
+          if (result.data.qrCode) {
+            setPayOsQrCode(result.data.qrCode);
+          } else if (result.data.checkoutUrl) {
+            setPaymentLink(result.data.checkoutUrl);
+          }
+          console.log('✅ PayOS order + QR created');
         } else {
           console.error('PayOS error:', result);
           alert(`Lỗi PayOS: ${result.desc || JSON.stringify(result)}`);
@@ -788,7 +796,6 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-      {/* Phần còn lại của UI giữ nguyên 100% như code cũ */}
       {!canStartRun && (
         <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
@@ -1000,39 +1007,33 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
+      {/* PAYMENT MODAL - HIỆN QR PAYOS TRỰC TIẾP */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
             <DialogTitle>Thanh toán {selectedPackage?.display_name}</DialogTitle>
           </DialogHeader>
           <div className="space-y-6 py-4">
-            <div className="bg-zinc-900 rounded-2xl p-5 space-y-5">
-              {paymentLink ? (
+            <div className="bg-zinc-900 rounded-2xl p-5 space-y-5 text-center">
+              {payOsQrCode ? (
                 <div className="flex flex-col items-center gap-4">
-                  <div className="text-center">
-                    <p className="text-sm text-zinc-400 mb-2">Nhấn vào nút bên dưới để mở trang thanh toán PayOS</p>
-                    <Button 
-                      asChild 
-                      className="w-full py-6 text-lg bg-emerald-600 hover:bg-emerald-700"
-                    >
-                      <a href={paymentLink} target="_blank" rel="noopener noreferrer">
-                        <QrCode className="mr-3 h-6 w-6" />
-                        Mở trang thanh toán PayOS
-                      </a>
-                    </Button>
-                    <p className="text-xs text-zinc-500 mt-3">
-                      Trang PayOS sẽ hiển thị QR + chuyển khoản tự động<br/>
-                      Thanh toán xong → hệ thống tự động cấp gói
-                    </p>
-                  </div>
+                  <img
+                    src={`data:image/png;base64,${payOsQrCode}`}
+                    alt="Mã QR PayOS"
+                    className="mx-auto w-64 h-64 bg-white p-4 rounded-3xl shadow-md"
+                  />
+                  <p className="text-sm text-zinc-400 mt-2">
+                    Quét mã QR bằng app ngân hàng<br/>
+                    Thanh toán xong → hệ thống tự động cấp gói
+                  </p>
                 </div>
               ) : (
-                <div className="flex justify-center py-8">
-                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-500"></div>
+                <div className="flex justify-center py-12">
+                  <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-green-500"></div>
                 </div>
               )}
 
-              <div className="text-center text-4xl font-black text-cyan-400">
+              <div className="text-4xl font-black text-cyan-400">
                 {selectedPackage?.price.toLocaleString()}đ
               </div>
             </div>
