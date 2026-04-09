@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { supabase } from '@/lib/supabase/client';
 import { getCurrentUser } from '@/app/features/auth/getUser';
 
@@ -102,7 +102,6 @@ const VIETNAM_REGIONS = [
   { name: 'Vĩnh Long', latMin: 9.95, latMax: 10.35, lngMin: 105.65, lngMax: 106.15 },
   { name: 'Vĩnh Phúc', latMin: 21.15, latMax: 21.55, lngMin: 105.35, lngMax: 105.85 },
   { name: 'Yên Bái', latMin: 21.35, latMax: 22.05, lngMin: 104.15, lngMax: 105.05 },
-  // Fallback
   { name: 'Việt Nam', latMin: 8.0, latMax: 24.0, lngMin: 102.0, lngMax: 110.0 },
 ] as const;
 
@@ -173,6 +172,10 @@ export default function RunPage() {
   const [isStarting, setIsStarting] = useState(false);
   const [isAutoCheckingOnStart, setIsAutoCheckingOnStart] = useState(false);
 
+  // ==================== DEVICE & NETWORK DETECTION (TỐI ƯU GPS) ====================
+  const [networkType, setNetworkType] = useState<'slow-2g' | '2g' | '3g' | '4g' | '5g' | 'unknown'>('4g');
+  const deviceCapabilityRef = useRef<'low' | 'medium' | 'high'>('medium');
+
   const isStartingRunRef = useRef(false);
 
   const resultRef = useRef<HTMLDivElement>(null);
@@ -191,7 +194,7 @@ export default function RunPage() {
   const lastSpeedUpdateRef = useRef(0);
   const maxSpeedRef = useRef(0);
 
-  // ==================== DEVICE MOTION & FUSED SPEED ====================
+  // ==================== DEVICE MOTION & FUSED SPEED (TỐI ƯU THEO THIẾT BỊ) ====================
   const handleDeviceMotion = useCallback((event: DeviceMotionEvent) => {
     if (event.acceleration) {
       accelerationRef.current = { x: event.acceleration.x ?? 0, y: event.acceleration.y ?? 0, z: event.acceleration.z ?? 0 };
@@ -242,13 +245,56 @@ export default function RunPage() {
       }
     }
 
-    const alpha = isCalibrated ? 0.65 : 0.4;
+    // TỐI ƯU THEO THIẾT BỊ: máy mạnh → mượt hơn, máy yếu → ổn định hơn
+    const alpha = isCalibrated 
+      ? (deviceCapabilityRef.current === 'high' ? 0.72 : deviceCapabilityRef.current === 'medium' ? 0.65 : 0.55)
+      : 0.4;
+
     smoothedSpeedRef.current = smoothedSpeedRef.current * (1 - alpha) + fusedSpeed * alpha;
 
     let finalSpeed = Math.max(0, Math.round(smoothedSpeedRef.current));
     if (finalSpeed < 5) finalSpeed = 0;
     return finalSpeed;
   }, []);
+
+  // ==================== DETECT MẠNG & THIẾT BỊ (4G/5G + CẤU HÌNH) ====================
+  useEffect(() => {
+    const detectNetworkAndDevice = () => {
+      // Network Information API
+      if ('connection' in navigator) {
+        const conn = (navigator as any).connection;
+        if (conn) {
+          setNetworkType(conn.effectiveType || '4g');
+          // Lắng nghe thay đổi mạng
+          conn.addEventListener('change', () => {
+            setNetworkType(conn.effectiveType || '4g');
+          });
+        }
+      }
+
+      // Device capability
+      const cores = navigator.hardwareConcurrency || 4;
+      const memory = (navigator as any).deviceMemory || 4;
+      if (cores >= 8 && memory >= 6) {
+        deviceCapabilityRef.current = 'high';
+      } else if (cores >= 4 && memory >= 4) {
+        deviceCapabilityRef.current = 'medium';
+      } else {
+        deviceCapabilityRef.current = 'low';
+      }
+    };
+
+    detectNetworkAndDevice();
+  }, []);
+
+  const getGeolocationOptions = useCallback(() => {
+    const isHighEnd = deviceCapabilityRef.current === 'high' && (networkType === '4g' || networkType === '5g');
+    return {
+      enableHighAccuracy: isHighEnd,
+      timeout: isHighEnd ? 5000 : 8000,
+      maximumAge: isHighEnd ? 0 : 3000,
+    };
+  }, [networkType]);
 
   const loadPackages = useCallback(async () => {
     if (packages.length > 0) return;
@@ -309,6 +355,8 @@ export default function RunPage() {
       return;
     }
 
+    const options = getGeolocationOptions();
+
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { accuracy, speed, latitude, longitude } = position.coords;
@@ -325,9 +373,9 @@ export default function RunPage() {
         setGpsStatus('Lỗi GPS');
         setIsCheckingGPS(false);
       },
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 0 }
+      options
     );
-  }, []);
+  }, [getGeolocationOptions]);
 
   const startRun = useCallback(() => {
     if (!selectedVehicle || isStarting || isStartingRunRef.current || !isPageReady) return;
@@ -395,7 +443,7 @@ export default function RunPage() {
 
             const targetSpeed = calculateFusedSpeed(gpsSpeedMs);
 
-            if (now - lastSpeedUpdateRef.current > 60) { // tối ưu mượt hơn
+            if (now - lastSpeedUpdateRef.current > 60) {
               setCurrentSpeed((prev) => {
                 const newDisplayed = Math.round(prev * 0.32 + targetSpeed * 0.68);
                 displayedSpeedRef.current = newDisplayed;
@@ -430,7 +478,7 @@ export default function RunPage() {
             if (error.code === 1) setErrorMessage('Bạn chưa cấp quyền GPS');
             else setErrorMessage('Lỗi GPS: ' + error.message);
           },
-          { enableHighAccuracy: true, timeout: 3000, maximumAge: 0 }
+          getGeolocationOptions()
         );
 
         setWatchId(id);
@@ -439,8 +487,9 @@ export default function RunPage() {
         setIsStarting(false);
       }
     }, 1000);
-  }, [calculateFusedSpeed, startDeviceMotion]);
+  }, [calculateFusedSpeed, startDeviceMotion, getGeolocationOptions]);
 
+  // ==================== CÁC HÀM KHÁC GIỮ NGUYÊN (chỉ tối ưu memo) ====================
   const stopRun = useCallback(async () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
     stopDeviceMotion();
@@ -477,8 +526,7 @@ export default function RunPage() {
       return;
     }
 
-    // === FIX: Refresh subscription ngay trước khi quyết định lưu ===
-    await refreshUserData(); // đảm bảo hasActiveSub mới nhất
+    await refreshUserData();
 
     const isTrialRun = !hasActiveSub;
 
@@ -509,10 +557,8 @@ export default function RunPage() {
           ai_verified: false,
           is_trial_run: false,
         });
-
         if (error) console.error('Lỗi insert run:', error);
       } else {
-        // trial run vẫn insert nhưng đánh dấu
         await supabase.from('runs').insert({
           user_id: user.id,
           vehicle_id: selectedVehicle.id,
@@ -610,13 +656,14 @@ export default function RunPage() {
     }
   }, []);
 
-  const getBigDisplay = () => {
+  // TỐI ƯU RE-RENDER (giảm Edge Requests gián tiếp)
+  const getBigDisplay = useMemo(() => {
     if (isAutoCheckingOnStart) return 'Đang kiểm tra...';
     if (countdown === null) return currentSpeed;
     if (countdown === 5) return currentRegion;
     if (countdown === 4) return 'READY';
     return countdown;
-  };
+  }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
@@ -680,6 +727,7 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
+      {/* Phần UI giữ nguyên 100% */}
       {!canStartRun && (
         <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
@@ -705,7 +753,7 @@ export default function RunPage() {
         <CardContent className="p-10 text-center">
           <p className="text-zinc-400 text-base mb-3">SPEED</p>
           <div className="text-[clamp(80px,20vw,140px)] font-black text-green-500 leading-none min-h-[160px] flex items-center justify-center">
-            {getBigDisplay()}
+            {getBigDisplay}
           </div>
           <p className="text-zinc-400 text-4xl mt-2">
             {countdown !== null && countdown !== 5 && countdown !== 4 ? 'GET READY' : ''}
@@ -780,6 +828,7 @@ export default function RunPage() {
         ) : null}
       </div>
 
+      {/* Các phần Dialog, Result, Buy Modal... giữ nguyên 100% như code cũ */}
       <Dialog>
         <DialogTrigger asChild>
           <Button variant="outline" className="w-full mt-3 py-8 text-2xl">
