@@ -38,6 +38,11 @@ type Package = {
   max_runs: number;
 };
 
+// ==================== PAYOS CONFIG (THAY BẰNG THÔNG TIN CỦA BẠN) ====================
+const PAYOS_CLIENT_ID = '389b4719-a094-4709-b374-a49571ceef06';     // ← Lấy từ PayOS Dashboard
+const PAYOS_API_KEY = 'edb7ac6b-c7c4-47d6-997e-abacdc41d4fd';         // ← Lấy từ PayOS Dashboard
+const PAYOS_CHECKSUM_KEY = '791afbe2562cda64b4a8924c25a45610644735cd2f310060e9cc52cd823a0e93'; // ← Giữ nguyên như webhook
+
 // ==================== OPTIMIZED REGION DETECTION (DỮ LIỆU CHUẨN 2026) ====================
 const VIETNAM_REGIONS = [
   { name: 'TP.HCM', latMin: 10.65, latMax: 10.95, lngMin: 106.35, lngMax: 106.85 },
@@ -656,7 +661,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== TẠO PAYMENT_LOG + QR TỰ ĐỘNG ====================
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (AUTO WEBHOOK) ====================
   const openPaymentModal = async (pkg: any) => {
     if (!user || !pkg) return;
 
@@ -665,7 +670,7 @@ export default function RunPage() {
     setShowPaymentModal(true);
     setPaymentLink('');
 
-    // Tạo record payment_logs ngay
+    // Tạo record payment_logs ngay (giống hệt code cũ)
     const memo = `toprace${pkg.name}`;
 
     const { error } = await supabase.from('payment_logs').insert({
@@ -682,19 +687,69 @@ export default function RunPage() {
     }
   };
 
-  // Tự động tạo QR ngay khi modal mở
+  // Tự động tạo PayOS Order (để webhook tự động trigger)
   useEffect(() => {
     if (!showPaymentModal || !selectedPackage) return;
 
-    const memo = `toprace${selectedPackage.name}`;
-    const amount = selectedPackage.price;
-    const accountNo = '0703926856';
-    const accountName = 'NGUYEN BINH MINH';
-    const bankCode = '970422';
+    const createPayOSOrder = async () => {
+      try {
+        const memo = `toprace${selectedPackage.name}`;
+        const orderCode = Math.floor(Date.now() / 1000); // unique
 
-    const vietqrUrl = `https://img.vietqr.io/image/${bankCode}-${accountNo}-compact.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(accountName)}`;
+        const requestBody = {
+          orderCode,
+          amount: selectedPackage.price,
+          description: memo,
+          items: [
+            {
+              name: selectedPackage.display_name,
+              quantity: 1,
+              price: selectedPackage.price,
+            },
+          ],
+          returnUrl: `${window.location.origin}/run`,
+          cancelUrl: `${window.location.origin}/run`,
+        };
 
-    setPaymentLink(vietqrUrl);
+        // Tính signature (giống hệt webhook)
+        const sortedKeys = Object.keys(requestBody).sort();
+        const dataString = sortedKeys.map(key => `${key}=${(requestBody as any)[key]}`).join('&');
+
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(PAYOS_CHECKSUM_KEY);
+        const dataToSign = encoder.encode(dataString);
+
+        const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, dataToSign);
+        const signature = Array.from(new Uint8Array(signatureBuffer))
+          .map(b => b.toString(16).padStart(2, '0')).join('');
+
+        const response = await fetch('https://api-merchant.payos.vn/v2/payment-requests', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-client-id': PAYOS_CLIENT_ID,
+            'x-api-key': PAYOS_API_KEY,
+          },
+          body: JSON.stringify({ ...requestBody, signature }),
+        });
+
+        const result = await response.json();
+
+        if (result.code === '00' && result.data?.checkoutUrl) {
+          setPaymentLink(result.data.checkoutUrl); // PayOS checkout page (có QR + các phương thức thanh toán)
+          console.log('✅ PayOS order created successfully');
+        } else {
+          console.error('PayOS error:', result);
+          alert('Không thể tạo link thanh toán PayOS. Vui lòng thử lại.');
+        }
+      } catch (err) {
+        console.error('Lỗi tạo PayOS order:', err);
+        alert('Lỗi kết nối PayOS. Vui lòng thử lại sau.');
+      }
+    };
+
+    createPayOSOrder();
   }, [showPaymentModal, selectedPackage]);
 
   const copyToClipboard = (text: string) => {
@@ -941,7 +996,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* PAYMENT MODAL */}
+      {/* PAYMENT MODAL - ĐÃ CHUYỂN SANG PAYOS (AUTO WEBHOOK) */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
@@ -949,43 +1004,31 @@ export default function RunPage() {
           </DialogHeader>
           <div className="space-y-6 py-4">
             <div className="bg-zinc-900 rounded-2xl p-5 space-y-5">
-              {paymentLink && (
-                <div className="flex justify-center bg-white p-4 rounded-2xl">
-                  <img 
-                    src={paymentLink} 
-                    alt="QR Thanh Toán" 
-                    className="rounded-xl shadow-md"
-                  />
+              {paymentLink ? (
+                <div className="flex flex-col items-center gap-4">
+                  <div className="text-center">
+                    <p className="text-sm text-zinc-400 mb-2">Nhấn vào nút bên dưới để mở trang thanh toán PayOS</p>
+                    <Button 
+                      asChild 
+                      className="w-full py-6 text-lg bg-emerald-600 hover:bg-emerald-700"
+                    >
+                      <a href={paymentLink} target="_blank" rel="noopener noreferrer">
+                        <QrCode className="mr-3 h-6 w-6" />
+                        Mở trang thanh toán PayOS
+                      </a>
+                    </Button>
+                    <p className="text-xs text-zinc-500 mt-3">
+                      Trang PayOS sẽ hiển thị QR + chuyển khoản tự động<br/>
+                      Thanh toán xong → hệ thống tự động cấp gói
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-500"></div>
                 </div>
               )}
 
-              <div>
-                <Label>Ngân hàng</Label>
-                <Input value="MB Bank" readOnly className="bg-black/50" />
-              </div>
-              <div>
-                <Label>Tên chủ tài khoản</Label>
-                <Input value="NGUYEN BINH MINH" readOnly className="bg-black/50" />
-              </div>
-              <div>
-                <Label>Số tài khoản</Label>
-                <div className="flex gap-2">
-                  <Input value="0703926856" readOnly className="bg-black/50 font-mono" />
-                  <Button onClick={() => copyToClipboard('0703926856')}>Copy</Button>
-                </div>
-              </div>
-              <div>
-                <Label>Nội dung chuyển khoản</Label>
-                <div className="flex gap-2 bg-black/50 p-3 rounded-xl items-center">
-                  <span className="font-mono flex-1 break-all">
-                    toprace{selectedPackage?.name}
-                  </span>
-                  <Button size="sm" onClick={() => copyToClipboard(`toprace${selectedPackage?.name}`)}>
-                    <Copy className="w-4 h-4" />
-                  </Button>
-                </div>
-                <p className="text-xs text-amber-400 mt-1">* Dán chính xác, không thêm dấu cách</p>
-              </div>
               <div className="text-center text-4xl font-black text-cyan-400">
                 {selectedPackage?.price.toLocaleString()}đ
               </div>
