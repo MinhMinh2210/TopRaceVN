@@ -321,6 +321,21 @@ export default function RunPage() {
     init();
   }, [refreshUserData]);
 
+  // ==================== AUTO RELOAD SAU KHI THANH TOÁN THÀNH CÔNG ====================
+  useEffect(() => {
+    if (!showPaymentModal || !user) return;
+
+    const interval = setInterval(async () => {
+      await refreshUserData();
+      if (hasActiveSub) {
+        setShowPaymentModal(false);
+        window.location.reload(); // Tự động load lại trang và cấp quyền
+      }
+    }, 3000); // kiểm tra mỗi 3 giây
+
+    return () => clearInterval(interval);
+  }, [showPaymentModal, user, hasActiveSub, refreshUserData]);
+
   const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/run' } });
   }, []);
@@ -643,7 +658,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== THANH TOÁN MỚI (MEMO + QR) ====================
+  // ==================== PAYOS + MB BANK (MEMO toprace + QR) ====================
   const openPaymentModal = (pkg: any) => {
     setSelectedPackage(pkg);
     setShowBuyModal(false);
@@ -654,22 +669,17 @@ export default function RunPage() {
   const generatePayOSQR = async () => {
     if (!selectedPackage || !user) return;
 
-    // Memo mới theo yêu cầu: toprace + mã gói
     const memo = `toprace${selectedPackage.name}`;
-    
     const amount = selectedPackage.price;
     const accountNo = '0703926856';
     const accountName = 'NGUYEN BINH MINH';
-    const bankCode = '970422'; // NAPAS code của MB Bank
+    const bankCode = '970422'; // MB Bank
 
     const vietqrUrl = `https://img.vietqr.io/image/${bankCode}-${accountNo}-compact.png?amount=${amount}&addInfo=${encodeURIComponent(memo)}&accountName=${encodeURIComponent(accountName)}`;
 
     setPaymentLink(vietqrUrl);
 
-    // Copy memo cho khách
-    navigator.clipboard.writeText(memo).then(() => {
-      alert(`✅ Đã copy memo: ${memo}\nQuét QR bên dưới để thanh toán nhanh nhất!`);
-    });
+    navigator.clipboard.writeText(memo);
   };
 
   const copyToClipboard = (text: string) => {
@@ -916,7 +926,7 @@ export default function RunPage() {
         </DialogContent>
       </Dialog>
 
-      {/* ==================== PAYMENT MODAL MỚI (QR + MEMO toprace1h) ==================== */}
+      {/* ==================== PAYMENT MODAL (QR VIETQR + AUTO RELOAD) ==================== */}
       <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
         <DialogContent className="w-[95vw] max-w-md rounded-3xl">
           <DialogHeader>
