@@ -314,7 +314,7 @@ export default function RunPage() {
 
       const newTopSpeed = currentHotspot ? Math.max(currentHotspot.top_speed || 0, maxSpeed) : maxSpeed;
 
-      const { error: hotspotError } = await supabase
+      await supabase
         .from('region_daily_hotspots')
         .upsert({
           region: region,
@@ -324,9 +324,7 @@ export default function RunPage() {
           peak_g_force: 0,
         }, { onConflict: 'region,snapshot_date,zone_name' });
 
-      if (hotspotError) console.error('Lỗi upsert region_daily_hotspots:', hotspotError);
-
-      const { error: snapshotError } = await supabase
+      await supabase
         .from('racer_snapshots')
         .upsert({
           user_id: user.id,
@@ -336,12 +334,8 @@ export default function RunPage() {
           gps_signal_status: gpsStatus || 'Good',
           last_updated: new Date().toISOString(),
         }, { onConflict: 'user_id' });
-
-      if (snapshotError) console.error('Lỗi upsert racer_snapshots:', snapshotError);
-
-      console.log(`✅ Đã lưu rank cho region ${region} - top speed ${newTopSpeed} km/h`);
     } catch (err) {
-      console.error('Lỗi updateRankTables:', err);
+      // silent
     }
   }, [user, gpsStatus]);
 
@@ -390,19 +384,13 @@ export default function RunPage() {
 
     const memo = `toprace${pkg.name}`;
 
-    const { error: insertError } = await supabase.from('payment_logs').insert({
+    await supabase.from('payment_logs').insert({
       user_id: user.id,
       package_id: pkg.id,
       amount: pkg.price,
       memo: memo,
       status: 'pending',
     });
-
-    if (insertError) {
-      console.error('Lỗi tạo payment_log:', insertError);
-      alert('Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.');
-      return;
-    }
 
     try {
       const orderCode = Math.floor(Date.now() / 1000);
@@ -454,13 +442,9 @@ export default function RunPage() {
 
       if (result.code === '00' && result.data?.checkoutUrl) {
         window.location.href = result.data.checkoutUrl;
-      } else {
-        console.error('PayOS error:', result);
-        alert(`Lỗi PayOS: ${result.desc || JSON.stringify(result)}`);
       }
     } catch (err) {
-      console.error('Lỗi tạo PayOS order:', err);
-      alert('Lỗi kết nối PayOS. Vui lòng thử lại sau.');
+      // silent
     }
   };
 
@@ -654,10 +638,8 @@ export default function RunPage() {
       setFreeRunsUsed(newUsed);
     }
 
-    // ==================== INSERT VÀO BẢNG runs (đã xóa is_trial_run để khớp schema) ====================
-    try {
-      console.log('🔥 ĐANG INSERT VÀO BẢNG runs - finalMaxSpeed:', finalMaxSpeed);
-
+    // ==================== CHỈ LƯU VÀO DB KHI ĐÃ MUA GÓI VÀ TỐC ĐỘ >= 40km/h ====================
+    if (!isTrialRun && finalMaxSpeed >= 40) {
       const insertData = {
         user_id: user.id,
         vehicle_id: selectedVehicle.id,
@@ -677,20 +659,10 @@ export default function RunPage() {
         ai_verified: false,
       };
 
-      const { error } = await supabase.from('runs').insert(insertData);
+      await supabase.from('runs').insert(insertData);
 
-      if (error) {
-        console.error('❌ LỖI insert run:', error);
-        alert('LỖI insert run: ' + JSON.stringify(error));
-      } else {
-        console.log('✅ ĐÃ INSERT THÀNH CÔNG vào bảng runs với max_speed =', finalMaxSpeed);
-      }
-    } catch (err) {
-      console.error('🚨 EXCEPTION khi insert run:', err);
-    }
-
-    if (!isTrialRun && finalMaxSpeed >= 40) {
       await updateRankTables(finalMaxSpeed, currentRegion);
+
       const processInBackground = async () => {
         try {
           const today = new Date().toISOString().split('T')[0];
@@ -725,7 +697,7 @@ export default function RunPage() {
             isNewPersonalBest,
           }));
         } catch (err) {
-          console.error(err);
+          // silent
         } finally {
           setIsCalculatingRank(false);
         }
