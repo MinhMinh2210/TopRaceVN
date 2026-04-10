@@ -305,7 +305,7 @@ export default function RunPage() {
 
   // ==================== UPDATE RANK TABLES (từ version 2 - đảm bảo lưu dữ liệu rank) ====================
   const updateRankTables = useCallback(async (maxSpeed: number, region: string) => {
-    if (!user?.id || maxSpeed < 40) return;
+    if (!user?.id || maxSpeed < 0) return;
 
     const today = new Date().toISOString().split('T')[0];
 
