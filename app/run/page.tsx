@@ -303,6 +303,48 @@ export default function RunPage() {
     setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
   }, [user]);
 
+  // ==================== UPDATE RANK TABLES (từ version 2 - đảm bảo lưu dữ liệu rank) ====================
+  const updateRankTables = useCallback(async (maxSpeed: number, region: string) => {
+    if (!user?.id || maxSpeed < 40) return;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    try {
+      const { data: currentHotspot } = await supabase
+        .from('region_daily_hotspots')
+        .select('top_speed')
+        .eq('region', region)
+        .eq('snapshot_date', today)
+        .eq('zone_name', region)
+        .maybeSingle();
+
+      const newTopSpeed = currentHotspot ? Math.max(currentHotspot.top_speed || 0, maxSpeed) : maxSpeed;
+
+      await supabase
+        .from('region_daily_hotspots')
+        .upsert({
+          region: region,
+          snapshot_date: today,
+          zone_name: region,
+          top_speed: newTopSpeed,
+          peak_g_force: 0,
+        }, { onConflict: 'region,snapshot_date,zone_name' });
+
+      await supabase
+        .from('racer_snapshots')
+        .upsert({
+          user_id: user.id,
+          current_region: region,
+          peak_g_force: 0,
+          gps_satellites: null,
+          gps_signal_status: gpsStatus || 'Good',
+          last_updated: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+    } catch (err) {
+      // silent fail - không ảnh hưởng đến run chính
+    }
+  }, [user, gpsStatus]);
+
   // ==================== HANDLE PAYOS RETURN URL (success/cancel) ====================
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -343,7 +385,7 @@ export default function RunPage() {
     init();
   }, [refreshUserData]);
 
-  // ==================== IMPROVED PAYMENT POLLING (faster + force reload) ====================
+  // ==================== IMPROVED PAYMENT POLLING ====================
   useEffect(() => {
     if (!showPaymentModal || !user) return;
     const interval = setInterval(async () => {
@@ -550,43 +592,31 @@ export default function RunPage() {
       setFreeRunsUsed(newUsed);
     }
 
-    try {
-      if (!isTrialRun) {
-        const { error } = await supabase.from('runs').insert({
-          user_id: user.id,
-          vehicle_id: selectedVehicle.id,
-          max_speed: finalMaxSpeed,
-          zero_to_sixty: null,
-          zero_to_hundred: zeroToHundred,
-          distance_to_max_speed: null,
-          gps_data: [],
-          start_lat: null,
-          start_lng: null,
-          end_lat: null,
-          end_lng: null,
-          region: currentRegion,
-          gps_accuracy: 'Good',
-          is_low_accuracy: false,
-          ai_analysis: null,
-          ai_verified: false,
-          is_trial_run: false,
-        });
-        if (error) console.error('Lỗi insert run:', error);
-      } else {
-        await supabase.from('runs').insert({
-          user_id: user.id,
-          vehicle_id: selectedVehicle.id,
-          max_speed: finalMaxSpeed,
-          zero_to_hundred: zeroToHundred,
-          region: currentRegion,
-          is_trial_run: true,
-        });
-      }
-    } catch (err) {
-      console.error('Lỗi khi lưu run:', err);
-    }
+    // ==================== CHỈ LƯU RUN VÀO DB KHI ĐÃ MUA GÓI VÀ TỐC ĐỘ >= 40km/h (logic từ version 2) ====================
+    if (!isTrialRun && finalMaxSpeed >= 40) {
+      const insertData = {
+        user_id: user.id,
+        vehicle_id: selectedVehicle.id,
+        max_speed: finalMaxSpeed,
+        zero_to_sixty: null,
+        zero_to_hundred: zeroToHundred,
+        distance_to_max_speed: null,
+        gps_data: [],
+        start_lat: null,
+        start_lng: null,
+        end_lat: null,
+        end_lng: null,
+        region: currentRegion,
+        gps_accuracy: 'Good',
+        is_low_accuracy: false,
+        ai_analysis: null,
+        ai_verified: false,
+      };
 
-    if (!isTrialRun) {
+      await supabase.from('runs').insert(insertData);
+
+      await updateRankTables(finalMaxSpeed, currentRegion);
+
       const processInBackground = async () => {
         try {
           const today = new Date().toISOString().split('T')[0];
@@ -633,7 +663,7 @@ export default function RunPage() {
     }
 
     await refreshUserData();
-  }, [watchId, stopDeviceMotion, user, selectedVehicle, currentRegion, hasActiveSub, freeRunsUsed, refreshUserData]);
+  }, [watchId, stopDeviceMotion, user, selectedVehicle, currentRegion, hasActiveSub, freeRunsUsed, refreshUserData, updateRankTables]);
 
   const resetRun = useCallback(() => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
@@ -678,7 +708,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (ĐÃ ĐỒNG BỘ MEMO) ====================
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (modal + polling từ version 1) ====================
   const openPaymentModal = async (pkg: any) => {
     if (!user || !pkg) return;
 
@@ -708,13 +738,13 @@ export default function RunPage() {
 
     const createPayOSOrder = async () => {
       try {
-        const memo = `toprace${selectedPackage.name}`;   // ← ĐỒNG BỘ với payment_logs
+        const memo = `toprace${selectedPackage.name}`;
         const orderCode = Math.floor(Date.now() / 1000);
 
         const requestBody = {
           orderCode,
           amount: selectedPackage.price,
-          description: memo,                    // ← Dùng chung memo
+          description: memo,
           items: [{
             name: selectedPackage.display_name,
             quantity: 1,
@@ -724,7 +754,6 @@ export default function RunPage() {
           cancelUrl: `${window.location.origin}/run?cancel=true`,
         };
 
-        // Signature chỉ tính trên 5 field chính (theo chuẩn PayOS)
         const signatureData = {
           amount: requestBody.amount,
           cancelUrl: requestBody.cancelUrl,
