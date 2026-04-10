@@ -303,9 +303,9 @@ export default function RunPage() {
     setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
   }, [user]);
 
-  // ==================== UPDATE RANK TABLES (từ version 2 - đảm bảo lưu dữ liệu rank) ====================
+  // ==================== UPDATE RANK TABLES ====================
   const updateRankTables = useCallback(async (maxSpeed: number, region: string) => {
-    if (!user?.id || maxSpeed < 0) return;
+    if (!user?.id || maxSpeed < 40) return;
 
     const today = new Date().toISOString().split('T')[0];
 
@@ -341,11 +341,11 @@ export default function RunPage() {
           last_updated: new Date().toISOString(),
         }, { onConflict: 'user_id' });
     } catch (err) {
-      // silent fail - không ảnh hưởng đến run chính
+      // silent fail
     }
   }, [user, gpsStatus]);
 
-  // ==================== HANDLE PAYOS RETURN URL (success/cancel) ====================
+  // ==================== HANDLE PAYOS RETURN URL ====================
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('success') === 'true') {
@@ -385,7 +385,7 @@ export default function RunPage() {
     init();
   }, [refreshUserData]);
 
-  // ==================== IMPROVED PAYMENT POLLING ====================
+  // ==================== PAYMENT POLLING ====================
   useEffect(() => {
     if (!showPaymentModal || !user) return;
     const interval = setInterval(async () => {
@@ -592,8 +592,8 @@ export default function RunPage() {
       setFreeRunsUsed(newUsed);
     }
 
-    // ==================== CHỈ LƯU RUN VÀO DB KHI ĐÃ MUA GÓI VÀ TỐC ĐỘ >= 40km/h (logic từ version 2) ====================
-    if (!isTrialRun && finalMaxSpeed >= 40) {
+    // ==================== LƯU RUN VÀO DB KHI ĐÃ MUA GÓI (CHO PHÉP 0km/h để test DB) ====================
+    if (!isTrialRun) {
       const insertData = {
         user_id: user.id,
         vehicle_id: selectedVehicle.id,
@@ -708,7 +708,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (modal + polling từ version 1) ====================
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER ====================
   const openPaymentModal = async (pkg: any) => {
     if (!user || !pkg) return;
 
@@ -835,7 +835,6 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
-      {/* Phần còn lại của UI giữ nguyên 100% như code cũ */}
       {!canStartRun && (
         <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
@@ -991,7 +990,7 @@ export default function RunPage() {
               </div>
 
               <div className="text-center">
-                {runResult.rankInRegionToday === -1 || runResult.maxSpeed < 40 ? (
+                {runResult.rankInRegionToday === -1 ? (
                   <p className="text-6xl font-black text-zinc-400 tracking-widest">VÔ HẠNG<br/><span className="text-xl">Không lưu dữ liệu</span></p>
                 ) : (
                   <>
@@ -1008,7 +1007,7 @@ export default function RunPage() {
                   <RotateCcw className="mr-2 h-5 w-5" />
                   Again
                 </Button>
-                {runResult.rankInRegionToday !== -1 && runResult.maxSpeed >= 40 && (
+                {runResult.rankInRegionToday !== -1 && (
                   <Button onClick={() => window.location.href = '/leaderboard'} className="flex-1 py-6 text-base">
                     Rank
                   </Button>
