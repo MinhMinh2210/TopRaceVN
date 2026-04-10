@@ -298,14 +298,12 @@ export default function RunPage() {
     setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
   }, [user]);
 
-  // ==================== MỚI: HÀM LƯU DỮ LIỆU TỪ BẢNG runs VÀO BẢNG RANK (region_daily_hotspots + racer_snapshots) ====================
   const updateRankTables = useCallback(async (maxSpeed: number, region: string) => {
     if (!user?.id || maxSpeed < 40) return;
 
     const today = new Date().toISOString().split('T')[0];
 
     try {
-      // 1. Cập nhật region_daily_hotspots (top speed daily theo region)
       const { data: currentHotspot } = await supabase
         .from('region_daily_hotspots')
         .select('top_speed')
@@ -323,7 +321,7 @@ export default function RunPage() {
           snapshot_date: today,
           zone_name: region,
           top_speed: newTopSpeed,
-          peak_g_force: 0, // chưa có tính g-force chi tiết trong run này
+          peak_g_force: 0,
         }, {
           onConflict: 'region,snapshot_date,zone_name',
           ignoreDuplicates: false,
@@ -331,13 +329,12 @@ export default function RunPage() {
 
       if (hotspotError) console.error('Lỗi upsert region_daily_hotspots:', hotspotError);
 
-      // 2. Cập nhật racer_snapshots (peak của user)
       const { error: snapshotError } = await supabase
         .from('racer_snapshots')
         .upsert({
           user_id: user.id,
           current_region: region,
-          peak_g_force: 0, // chưa có g-force chi tiết
+          peak_g_force: 0,
           gps_satellites: null,
           gps_signal_status: gpsStatus || 'Good',
           last_updated: new Date().toISOString(),
@@ -354,7 +351,6 @@ export default function RunPage() {
     }
   }, [user, gpsStatus]);
 
-  // ==================== HANDLE PAYOS RETURN URL (success) ====================
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('success') === 'true') {
@@ -395,7 +391,6 @@ export default function RunPage() {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/run' } });
   }, []);
 
-  // ==================== MUA NGAY → TRỰC TIẾP PAYOS ====================
   const handlePurchase = async (pkg: Package) => {
     if (!user || !pkg) return;
 
@@ -665,43 +660,43 @@ export default function RunPage() {
       setFreeRunsUsed(newUsed);
     }
 
+    // ==================== FIX TEST: LUÔN LƯU VÀO BẢNG runs KỂ CẢ 0km/h ====================
     try {
-      if (!isTrialRun) {
-        const { error } = await supabase.from('runs').insert({
-          user_id: user.id,
-          vehicle_id: selectedVehicle.id,
-          max_speed: finalMaxSpeed,
-          zero_to_sixty: null,
-          zero_to_hundred: zeroToHundred,
-          distance_to_max_speed: null,
-          gps_data: [],
-          start_lat: null,
-          start_lng: null,
-          end_lat: null,
-          end_lng: null,
-          region: currentRegion,
-          gps_accuracy: 'Good',
-          is_low_accuracy: false,
-          ai_analysis: null,
-          ai_verified: false,
-          is_trial_run: false,
-        });
-        if (error) console.error('Lỗi insert run:', error);
+      console.log('🔥 ĐANG INSERT VÀO BẢNG runs - finalMaxSpeed:', finalMaxSpeed, 'isTrialRun:', isTrialRun);
+
+      const insertData = {
+        user_id: user.id,
+        vehicle_id: selectedVehicle.id,
+        max_speed: finalMaxSpeed,
+        zero_to_sixty: null,
+        zero_to_hundred: zeroToHundred,
+        distance_to_max_speed: null,
+        gps_data: [],
+        start_lat: null,
+        start_lng: null,
+        end_lat: null,
+        end_lng: null,
+        region: currentRegion,
+        gps_accuracy: 'Good',
+        is_low_accuracy: false,
+        ai_analysis: null,
+        ai_verified: false,
+        is_trial_run: isTrialRun,
+      };
+
+      const { error } = await supabase.from('runs').insert(insertData);
+
+      if (error) {
+        console.error('❌ LỖI insert run:', error);
+        alert('LỖI insert run: ' + JSON.stringify(error));
       } else {
-        await supabase.from('runs').insert({
-          user_id: user.id,
-          vehicle_id: selectedVehicle.id,
-          max_speed: finalMaxSpeed,
-          zero_to_hundred: zeroToHundred,
-          region: currentRegion,
-          is_trial_run: true,
-        });
+        console.log('✅ ĐÃ INSERT THÀNH CÔNG vào bảng runs với max_speed =', finalMaxSpeed);
       }
     } catch (err) {
-      console.error('Lỗi khi lưu run:', err);
+      console.error('🚨 EXCEPTION khi insert run:', err);
     }
 
-    // ==================== FIX CHÍNH: LUÔN LƯU VÀO BẢNG RANK KHI ĐÃ MUA GÓI (không phân biệt trial/paid cho logic rank) ====================
+    // ==================== VẪN GIỮ LOGIC RANK (chỉ cho paid) ====================
     if (!isTrialRun && finalMaxSpeed >= 40) {
       await updateRankTables(finalMaxSpeed, currentRegion);
       const processInBackground = async () => {
