@@ -322,10 +322,7 @@ export default function RunPage() {
           zone_name: region,
           top_speed: newTopSpeed,
           peak_g_force: 0,
-        }, {
-          onConflict: 'region,snapshot_date,zone_name',
-          ignoreDuplicates: false,
-        });
+        }, { onConflict: 'region,snapshot_date,zone_name' });
 
       if (hotspotError) console.error('Lỗi upsert region_daily_hotspots:', hotspotError);
 
@@ -338,10 +335,7 @@ export default function RunPage() {
           gps_satellites: null,
           gps_signal_status: gpsStatus || 'Good',
           last_updated: new Date().toISOString(),
-        }, {
-          onConflict: 'user_id',
-          ignoreDuplicates: false,
-        });
+        }, { onConflict: 'user_id' });
 
       if (snapshotError) console.error('Lỗi upsert racer_snapshots:', snapshotError);
 
@@ -660,9 +654,9 @@ export default function RunPage() {
       setFreeRunsUsed(newUsed);
     }
 
-    // ==================== FIX TEST: LUÔN LƯU VÀO BẢNG runs KỂ CẢ 0km/h ====================
+    // ==================== INSERT VÀO BẢNG runs (đã xóa is_trial_run để khớp schema) ====================
     try {
-      console.log('🔥 ĐANG INSERT VÀO BẢNG runs - finalMaxSpeed:', finalMaxSpeed, 'isTrialRun:', isTrialRun);
+      console.log('🔥 ĐANG INSERT VÀO BẢNG runs - finalMaxSpeed:', finalMaxSpeed);
 
       const insertData = {
         user_id: user.id,
@@ -681,7 +675,6 @@ export default function RunPage() {
         is_low_accuracy: false,
         ai_analysis: null,
         ai_verified: false,
-        is_trial_run: isTrialRun,
       };
 
       const { error } = await supabase.from('runs').insert(insertData);
@@ -696,7 +689,6 @@ export default function RunPage() {
       console.error('🚨 EXCEPTION khi insert run:', err);
     }
 
-    // ==================== VẪN GIỮ LOGIC RANK (chỉ cho paid) ====================
     if (!isTrialRun && finalMaxSpeed >= 40) {
       await updateRankTables(finalMaxSpeed, currentRegion);
       const processInBackground = async () => {
