@@ -1044,7 +1044,7 @@ export default function RunPage() {
 
       <div className="text-center py-20">
         <h1 className="text-[2.8rem] md:text-[3.2rem] font-black leading-none tracking-tighter">
-          81 VIETNAM SPEED RANK
+          81 VIETNAM SPEED RANKk
         </h1>
       </div>
       <DonateModal />
