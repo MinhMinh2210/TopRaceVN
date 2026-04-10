@@ -305,7 +305,6 @@ export default function RunPage() {
       setShowBuyModal(false);
       refreshUserData().then(() => {
         window.history.replaceState({}, document.title, window.location.pathname);
-        // Không reload trang nữa → UI tự cập nhật mượt mà
       });
     } else if (params.get('cancel') === 'true') {
       setShowBuyModal(false);
@@ -340,13 +339,12 @@ export default function RunPage() {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/run' } });
   }, []);
 
-  // ==================== MỚI: MUA NGAY → TRỰC TIẾP PAYOS (KHÔNG QUA MODAL TRUNG GIAN) ====================
+  // ==================== MUA NGAY → TRỰC TIẾP PAYOS ====================
   const handlePurchase = async (pkg: Package) => {
     if (!user || !pkg) return;
 
     const memo = `toprace${pkg.name}`;
 
-    // 1. Tạo payment_log pending
     const { error: insertError } = await supabase.from('payment_logs').insert({
       user_id: user.id,
       package_id: pkg.id,
@@ -361,7 +359,6 @@ export default function RunPage() {
       return;
     }
 
-    // 2. Tạo PayOS order
     try {
       const orderCode = Math.floor(Date.now() / 1000);
 
@@ -411,7 +408,6 @@ export default function RunPage() {
       const result = await response.json();
 
       if (result.code === '00' && result.data?.checkoutUrl) {
-        // REDIRECT TRỰC TIẾP SANG PAYOS
         window.location.href = result.data.checkoutUrl;
       } else {
         console.error('PayOS error:', result);
@@ -741,38 +737,6 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  const checkGPS = useCallback(async () => {
-    setIsCheckingGPS(true);
-    setErrorMessage('');
-    if (!navigator.geolocation) {
-      setErrorMessage('Thiết bị không hỗ trợ GPS');
-      setGpsStatus('Không hỗ trợ GPS');
-      setIsCheckingGPS(false);
-      return;
-    }
-
-    const options = getGeolocationOptions();
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        const { accuracy, speed, latitude, longitude } = position.coords;
-        const regionName = getRegionFromCoords(latitude, longitude);
-        setCurrentRegion(regionName);
-
-        const info = getGPSStatusInfo(accuracy, speed !== null && speed !== undefined);
-        setGpsStatus(info.text);
-        setGpsAccuracy(Math.round(accuracy));
-        setIsCheckingGPS(false);
-      },
-      (error) => {
-        setErrorMessage(error.code === 1 ? 'Bạn chưa cấp quyền GPS' : 'Lỗi GPS: ' + error.message);
-        setGpsStatus('Lỗi GPS');
-        setIsCheckingGPS(false);
-      },
-      options
-    );
-  }, [getGeolocationOptions]);
-
   if (isAuthLoading || !isDataLoaded) {
     return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang tải dữ liệu người dùng...</div>;
   }
@@ -985,7 +949,6 @@ export default function RunPage() {
         </div>
       )}
 
-      {/* BUY MODAL - ĐÃ TỐI ƯU: MUA NGAY → TRỰC TIẾP PAYOS */}
       <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
         <DialogContent className="w-[95vw] max-w-lg rounded-3xl">
           <DialogHeader>
