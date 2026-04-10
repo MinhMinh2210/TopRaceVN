@@ -6,8 +6,6 @@ import { getCurrentUser } from '@/app/features/auth/getUser';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -16,7 +14,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Play, Square, RotateCcw, AlertCircle, Car, Download, Copy, QrCode } from 'lucide-react';
+import { Play, Square, RotateCcw, AlertCircle, Car, Download } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import DonateModal from '../components/donate-modal';
 
@@ -142,6 +140,7 @@ export default function RunPage() {
   const [freeRunsUsed, setFreeRunsUsed] = useState(0);
   const [hasActiveSub, setHasActiveSub] = useState(false);
   const [packages, setPackages] = useState<Package[]>([]);
+  const [showBuyModal, setShowBuyModal] = useState(false);
 
   const canStartRun = hasActiveSub || freeRunsUsed < 2;
 
@@ -377,19 +376,7 @@ export default function RunPage() {
     init();
   }, [refreshUserData]);
 
-  // ==================== HANDLE QUICK BUY - MUA NGAY LẬP TỨC REDIRECT PAYOS ====================
-  const handleQuickBuy = useCallback(async () => {
-    if (!user) return;
-    if (packages.length === 0) {
-      await loadPackages();
-    }
-    if (packages.length > 0) {
-      await openPaymentModal(packages[0]); // gói rẻ nhất (đã order by price)
-    } else {
-      alert('Không tải được gói cước. Vui lòng thử lại!');
-    }
-  }, [user, packages, loadPackages]);
-
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER + REDIRECT NGAY LẬP TỨC ====================
   const openPaymentModal = async (pkg: any) => {
     if (!user || !pkg) return;
 
@@ -409,7 +396,7 @@ export default function RunPage() {
       return;
     }
 
-    // TẠO PAYOS ORDER VÀ CHUYỂN HƯỚNG NGAY (không modal, không fetch thừa)
+    // TẠO ORDER VÀ CHUYỂN HƯỚNG NGAY LẬP TỨC (không modal thanh toán)
     try {
       const orderCode = Math.floor(Date.now() / 1000);
 
@@ -459,7 +446,7 @@ export default function RunPage() {
       const result = await response.json();
 
       if (result.code === '00' && result.data?.checkoutUrl) {
-        window.location.href = result.data.checkoutUrl; // CHUYỂN HƯỚNG LẬP TỨC
+        window.location.href = result.data.checkoutUrl; // CHUYỂN HƯỚNG NGAY LẬP TỨC
       } else {
         console.error('PayOS error:', result);
         alert(`Lỗi PayOS: ${result.desc || JSON.stringify(result)}`);
@@ -512,7 +499,8 @@ export default function RunPage() {
     isStartingRunRef.current = true;
 
     if (!canStartRun) {
-      handleQuickBuy();
+      loadPackages();
+      setShowBuyModal(true);
       isStartingRunRef.current = false;
       return;
     }
@@ -529,7 +517,7 @@ export default function RunPage() {
 
     startCountdown();
     isStartingRunRef.current = false;
-  }, [selectedVehicle, isStarting, currentRegion, canStartRun, checkGPS, handleQuickBuy, isPageReady]);
+  }, [selectedVehicle, isStarting, currentRegion, canStartRun, checkGPS, loadPackages, isPageReady]);
 
   const startCountdown = useCallback(() => {
     setIsStarting(true);
@@ -663,7 +651,6 @@ export default function RunPage() {
       setFreeRunsUsed(newUsed);
     }
 
-    // ==================== LƯU RUN VÀO DB KHI ĐÃ MUA GÓI (CHO PHÉP 0km/h để test DB) ====================
     if (!isTrialRun) {
       const insertData = {
         user_id: user.id,
@@ -779,10 +766,6 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  const copyToClipboard = (text: string) => {
-    navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
-  };
-
   if (isAuthLoading || !isDataLoaded) {
     return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang tải dữ liệu người dùng...</div>;
   }
@@ -819,7 +802,7 @@ export default function RunPage() {
             <p className="font-semibold">Bạn đã dùng hết 2 lượt thử miễn phí</p>
             <p className="text-sm">Mua gói cước để tiếp tục lưu run và tính rank</p>
           </div>
-          <Button onClick={handleQuickBuy} className="bg-amber-400 hover:bg-amber-300 text-black">Mua ngay</Button>
+          <Button onClick={() => { loadPackages(); setShowBuyModal(true); }} className="bg-amber-400 hover:bg-amber-300 text-black">Mua ngay</Button>
         </div>
       )}
 
@@ -994,6 +977,37 @@ export default function RunPage() {
           </Card>
         </div>
       )}
+
+      {/* ==================== MODAL CHỌN GÓI CƯỚC (giữ nguyên cấu trúc gốc) ==================== */}
+      <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
+        <DialogContent className="w-[95vw] max-w-lg rounded-3xl">
+          <DialogHeader>
+            <DialogTitle className="text-3xl font-black">Chọn gói cước</DialogTitle>
+            <DialogDescription>Bạn đã hết lượt miễn phí. Hãy chọn gói phù hợp</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4 max-h-[60vh] overflow-auto">
+            {packages.map((pkg) => (
+              <Card key={pkg.id} className="bg-zinc-900 border-zinc-700">
+                <CardContent className="p-6 flex justify-between items-center">
+                  <div>
+                    <p className="font-semibold text-xl">{pkg.display_name}</p>
+                    <p className="text-sm text-zinc-400">
+                      {pkg.duration_value} {pkg.duration_type === 'hours' ? 'giờ' : pkg.duration_type === 'days' ? 'ngày' : 'phút'} • {pkg.max_runs} run
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-4xl font-black text-cyan-400">{pkg.price.toLocaleString()}đ</p>
+                    <Button size="sm" className="mt-3" onClick={() => openPaymentModal(pkg)}>
+                      Mua ngay
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            ))}
+          </div>
+          <Button variant="outline" onClick={() => setShowBuyModal(false)} className="w-full">Đóng</Button>
+        </DialogContent>
+      </Dialog>
 
       <div className="text-center py-20">
         <h1 className="text-[2.8rem] md:text-[3.2rem] font-black leading-none tracking-tighter">
