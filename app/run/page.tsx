@@ -6,6 +6,8 @@ import { getCurrentUser } from '@/app/features/auth/getUser';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import {
   Dialog,
   DialogContent,
@@ -14,7 +16,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import { Play, Square, RotateCcw, AlertCircle, Car, Download, QrCode } from 'lucide-react';
+import { Play, Square, RotateCcw, AlertCircle, Car, Download, Copy, QrCode } from 'lucide-react';
 import html2canvas from 'html2canvas';
 import DonateModal from '../components/donate-modal';
 
@@ -141,6 +143,9 @@ export default function RunPage() {
   const [hasActiveSub, setHasActiveSub] = useState(false);
   const [packages, setPackages] = useState<Package[]>([]);
   const [showBuyModal, setShowBuyModal] = useState(false);
+  const [showPaymentModal, setShowPaymentModal] = useState(false);
+  const [selectedPackage, setSelectedPackage] = useState<any>(null);
+  const [paymentLink, setPaymentLink] = useState<string>('');
 
   const canStartRun = hasActiveSub || freeRunsUsed < 2;
 
@@ -298,15 +303,18 @@ export default function RunPage() {
     setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
   }, [user]);
 
-  // ==================== HANDLE PAYOS RETURN URL (success) ====================
+  // ==================== HANDLE PAYOS RETURN URL (success/cancel) ====================
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('success') === 'true') {
+      setShowPaymentModal(false);
       setShowBuyModal(false);
       refreshUserData().then(() => {
         window.history.replaceState({}, document.title, window.location.pathname);
+        setTimeout(() => window.location.reload(), 800);
       });
     } else if (params.get('cancel') === 'true') {
+      setShowPaymentModal(false);
       setShowBuyModal(false);
       window.history.replaceState({}, document.title, window.location.pathname);
     }
@@ -335,89 +343,22 @@ export default function RunPage() {
     init();
   }, [refreshUserData]);
 
+  // ==================== IMPROVED PAYMENT POLLING (faster + force reload) ====================
+  useEffect(() => {
+    if (!showPaymentModal || !user) return;
+    const interval = setInterval(async () => {
+      await refreshUserData();
+      if (hasActiveSub) {
+        setShowPaymentModal(false);
+        setTimeout(() => window.location.reload(), 600);
+      }
+    }, 2000);
+    return () => clearInterval(interval);
+  }, [showPaymentModal, user, hasActiveSub, refreshUserData]);
+
   const handleGoogleLogin = useCallback(async () => {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/run' } });
   }, []);
-
-  // ==================== MUA NGAY → TRỰC TIẾP PAYOS ====================
-  const handlePurchase = async (pkg: Package) => {
-    if (!user || !pkg) return;
-
-    const memo = `toprace${pkg.name}`;
-
-    const { error: insertError } = await supabase.from('payment_logs').insert({
-      user_id: user.id,
-      package_id: pkg.id,
-      amount: pkg.price,
-      memo: memo,
-      status: 'pending',
-    });
-
-    if (insertError) {
-      console.error('Lỗi tạo payment_log:', insertError);
-      alert('Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.');
-      return;
-    }
-
-    try {
-      const orderCode = Math.floor(Date.now() / 1000);
-
-      const requestBody = {
-        orderCode,
-        amount: pkg.price,
-        description: memo,
-        items: [{
-          name: pkg.display_name,
-          quantity: 1,
-          price: pkg.price,
-        }],
-        returnUrl: `${window.location.origin}/run?success=true`,
-        cancelUrl: `${window.location.origin}/run?cancel=true`,
-      };
-
-      const signatureData = {
-        amount: requestBody.amount,
-        cancelUrl: requestBody.cancelUrl,
-        description: requestBody.description,
-        orderCode: requestBody.orderCode,
-        returnUrl: requestBody.returnUrl,
-      };
-
-      const sortedKeys = Object.keys(signatureData).sort();
-      const dataString = sortedKeys.map(key => `${key}=${(signatureData as any)[key]}`).join('&');
-
-      const encoder = new TextEncoder();
-      const keyData = encoder.encode(PAYOS_CHECKSUM_KEY);
-      const dataToSign = encoder.encode(dataString);
-
-      const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-      const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, dataToSign);
-      const signature = Array.from(new Uint8Array(signatureBuffer))
-        .map(b => b.toString(16).padStart(2, '0')).join('');
-
-      const response = await fetch('https://api-merchant.payos.vn/v2/payment-requests', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-client-id': PAYOS_CLIENT_ID,
-          'x-api-key': PAYOS_API_KEY,
-        },
-        body: JSON.stringify({ ...requestBody, signature }),
-      });
-
-      const result = await response.json();
-
-      if (result.code === '00' && result.data?.checkoutUrl) {
-        window.location.href = result.data.checkoutUrl;
-      } else {
-        console.error('PayOS error:', result);
-        alert(`Lỗi PayOS: ${result.desc || JSON.stringify(result)}`);
-      }
-    } catch (err) {
-      console.error('Lỗi tạo PayOS order:', err);
-      alert('Lỗi kết nối PayOS. Vui lòng thử lại sau.');
-    }
-  };
 
   const checkGPS = useCallback(async () => {
     setIsCheckingGPS(true);
@@ -737,6 +678,105 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (ĐÃ ĐỒNG BỘ MEMO) ====================
+  const openPaymentModal = async (pkg: any) => {
+    if (!user || !pkg) return;
+
+    setSelectedPackage(pkg);
+    setShowBuyModal(false);
+    setShowPaymentModal(true);
+    setPaymentLink('');
+
+    const memo = `toprace${pkg.name}`;
+
+    const { error } = await supabase.from('payment_logs').insert({
+      user_id: user.id,
+      package_id: pkg.id,
+      amount: pkg.price,
+      memo: memo,
+      status: 'pending',
+    });
+
+    if (error) {
+      console.error('Lỗi tạo payment_log:', error);
+      alert('Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.');
+    }
+  };
+
+  useEffect(() => {
+    if (!showPaymentModal || !selectedPackage) return;
+
+    const createPayOSOrder = async () => {
+      try {
+        const memo = `toprace${selectedPackage.name}`;   // ← ĐỒNG BỘ với payment_logs
+        const orderCode = Math.floor(Date.now() / 1000);
+
+        const requestBody = {
+          orderCode,
+          amount: selectedPackage.price,
+          description: memo,                    // ← Dùng chung memo
+          items: [{
+            name: selectedPackage.display_name,
+            quantity: 1,
+            price: selectedPackage.price,
+          }],
+          returnUrl: `${window.location.origin}/run?success=true`,
+          cancelUrl: `${window.location.origin}/run?cancel=true`,
+        };
+
+        // Signature chỉ tính trên 5 field chính (theo chuẩn PayOS)
+        const signatureData = {
+          amount: requestBody.amount,
+          cancelUrl: requestBody.cancelUrl,
+          description: requestBody.description,
+          orderCode: requestBody.orderCode,
+          returnUrl: requestBody.returnUrl,
+        };
+
+        const sortedKeys = Object.keys(signatureData).sort();
+        const dataString = sortedKeys.map(key => `${key}=${(signatureData as any)[key]}`).join('&');
+
+        const encoder = new TextEncoder();
+        const keyData = encoder.encode(PAYOS_CHECKSUM_KEY);
+        const dataToSign = encoder.encode(dataString);
+
+        const cryptoKey = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+        const signatureBuffer = await crypto.subtle.sign('HMAC', cryptoKey, dataToSign);
+        const signature = Array.from(new Uint8Array(signatureBuffer))
+          .map(b => b.toString(16).padStart(2, '0')).join('');
+
+        const response = await fetch('https://api-merchant.payos.vn/v2/payment-requests', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-client-id': PAYOS_CLIENT_ID,
+            'x-api-key': PAYOS_API_KEY,
+          },
+          body: JSON.stringify({ ...requestBody, signature }),
+        });
+
+        const result = await response.json();
+
+        if (result.code === '00' && result.data?.checkoutUrl) {
+          setPaymentLink(result.data.checkoutUrl);
+          console.log('✅ PayOS order created successfully');
+        } else {
+          console.error('PayOS error:', result);
+          alert(`Lỗi PayOS: ${result.desc || JSON.stringify(result)}`);
+        }
+      } catch (err) {
+        console.error('Lỗi tạo PayOS order:', err);
+        alert('Lỗi kết nối PayOS. Vui lòng thử lại sau.');
+      }
+    };
+
+    createPayOSOrder();
+  }, [showPaymentModal, selectedPackage]);
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
+  };
+
   if (isAuthLoading || !isDataLoaded) {
     return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang tải dữ liệu người dùng...</div>;
   }
@@ -750,7 +790,7 @@ export default function RunPage() {
               <Car className="w-10 h-10 text-green-500" />
             </div>
             <h1 className="text-3xl font-black mb-2">BẮT ĐẦU RUN</h1>
-            <p className="text-zinc-400 mb-8">Đăng nhập để bắt đầu ghi tốc độ và lưu kết quả.</p>
+            <p className="text-zinc-400 mb-8">Đăng nhập để bắt đầu ghi tốc độ và lưu kết quả</p>
             <Button onClick={handleGoogleLogin} className="w-full mx-auto py-7 text-lg bg-white hover:bg-zinc-100 text-black font-semibold rounded-2xl flex items-center gap-3">
               <img src="https://www.google.com/favicon.ico" alt="Google" className="w-5 h-5" />
               Google Login
@@ -766,6 +806,7 @@ export default function RunPage() {
 
   return (
     <div className="min-h-screen bg-zinc-950 px-5 py-8 space-y-5">
+      {/* Phần còn lại của UI giữ nguyên 100% như code cũ */}
       {!canStartRun && (
         <div className="bg-amber-900/30 border border-amber-400 text-amber-300 p-5 rounded-3xl flex items-center gap-4">
           <AlertCircle className="w-6 h-6 flex-shrink-0" />
@@ -967,19 +1008,55 @@ export default function RunPage() {
                   </div>
                   <div className="text-right">
                     <p className="text-4xl font-black text-cyan-400">{pkg.price.toLocaleString()}đ</p>
-                    <Button 
-                      size="sm" 
-                      className="mt-3"
-                      onClick={() => handlePurchase(pkg)}
-                    >
-                      Mua ngay
-                    </Button>
+                    <Button size="sm" className="mt-3" onClick={() => openPaymentModal(pkg)}>Mua ngay</Button>
                   </div>
                 </CardContent>
               </Card>
             ))}
           </div>
           <Button variant="outline" onClick={() => setShowBuyModal(false)} className="w-full">Đóng</Button>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={showPaymentModal} onOpenChange={setShowPaymentModal}>
+        <DialogContent className="w-[95vw] max-w-md rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Thanh toán {selectedPackage?.display_name}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 py-4">
+            <div className="bg-zinc-900 rounded-2xl p-5 space-y-5">
+              {paymentLink ? (
+                <div className="flex flex-col items-center gap-4">
+                  <div className="text-center">
+                    <p className="text-sm text-zinc-400 mb-2">Nhấn vào nút bên dưới để mở trang thanh toán PayOS</p>
+                    <Button 
+                      asChild 
+                      className="w-full py-6 text-lg bg-emerald-600 hover:bg-emerald-700"
+                    >
+                      <a href={paymentLink} target="_blank" rel="noopener noreferrer">
+                        <QrCode className="mr-3 h-6 w-6" />
+                        Mở trang thanh toán PayOS
+                      </a>
+                    </Button>
+                    <p className="text-xs text-zinc-500 mt-3">
+                      Trang PayOS sẽ hiển thị QR + chuyển khoản tự động<br/>
+                      Thanh toán xong → hệ thống tự động cấp gói
+                    </p>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex justify-center py-8">
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-green-500"></div>
+                </div>
+              )}
+
+              <div className="text-center text-4xl font-black text-cyan-400">
+                {selectedPackage?.price.toLocaleString()}đ
+              </div>
+            </div>
+
+            <Button variant="outline" onClick={() => setShowPaymentModal(false)} className="w-full">Đóng</Button>
+          </div>
         </DialogContent>
       </Dialog>
 
@@ -991,4 +1068,4 @@ export default function RunPage() {
       <DonateModal />
     </div>
   );
-}
+} 
