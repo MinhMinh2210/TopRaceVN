@@ -303,6 +303,23 @@ export default function RunPage() {
     setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
   }, [user]);
 
+  // ==================== HANDLE PAYOS RETURN URL (success/cancel) ====================
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('success') === 'true') {
+      setShowPaymentModal(false);
+      setShowBuyModal(false);
+      refreshUserData().then(() => {
+        window.history.replaceState({}, document.title, window.location.pathname);
+        setTimeout(() => window.location.reload(), 800);
+      });
+    } else if (params.get('cancel') === 'true') {
+      setShowPaymentModal(false);
+      setShowBuyModal(false);
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, [refreshUserData]);
+
   useEffect(() => {
     const init = async () => {
       const u = await getCurrentUser();
@@ -326,15 +343,16 @@ export default function RunPage() {
     init();
   }, [refreshUserData]);
 
+  // ==================== IMPROVED PAYMENT POLLING (faster + force reload) ====================
   useEffect(() => {
     if (!showPaymentModal || !user) return;
     const interval = setInterval(async () => {
       await refreshUserData();
       if (hasActiveSub) {
         setShowPaymentModal(false);
-        window.location.reload();
+        setTimeout(() => window.location.reload(), 600);
       }
-    }, 3000);
+    }, 2000);
     return () => clearInterval(interval);
   }, [showPaymentModal, user, hasActiveSub, refreshUserData]);
 
