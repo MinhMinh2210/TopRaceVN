@@ -298,6 +298,62 @@ export default function RunPage() {
     setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
   }, [user]);
 
+  // ==================== MỚI: HÀM LƯU DỮ LIỆU TỪ BẢNG runs VÀO BẢNG RANK (region_daily_hotspots + racer_snapshots) ====================
+  const updateRankTables = useCallback(async (maxSpeed: number, region: string) => {
+    if (!user?.id || maxSpeed < 40) return;
+
+    const today = new Date().toISOString().split('T')[0];
+
+    try {
+      // 1. Cập nhật region_daily_hotspots (top speed daily theo region)
+      const { data: currentHotspot } = await supabase
+        .from('region_daily_hotspots')
+        .select('top_speed')
+        .eq('region', region)
+        .eq('snapshot_date', today)
+        .eq('zone_name', region)
+        .maybeSingle();
+
+      const newTopSpeed = currentHotspot ? Math.max(currentHotspot.top_speed || 0, maxSpeed) : maxSpeed;
+
+      const { error: hotspotError } = await supabase
+        .from('region_daily_hotspots')
+        .upsert({
+          region: region,
+          snapshot_date: today,
+          zone_name: region,
+          top_speed: newTopSpeed,
+          peak_g_force: 0, // chưa có tính g-force chi tiết trong run này
+        }, {
+          onConflict: 'region,snapshot_date,zone_name',
+          ignoreDuplicates: false,
+        });
+
+      if (hotspotError) console.error('Lỗi upsert region_daily_hotspots:', hotspotError);
+
+      // 2. Cập nhật racer_snapshots (peak của user)
+      const { error: snapshotError } = await supabase
+        .from('racer_snapshots')
+        .upsert({
+          user_id: user.id,
+          current_region: region,
+          peak_g_force: 0, // chưa có g-force chi tiết
+          gps_satellites: null,
+          gps_signal_status: gpsStatus || 'Good',
+          last_updated: new Date().toISOString(),
+        }, {
+          onConflict: 'user_id',
+          ignoreDuplicates: false,
+        });
+
+      if (snapshotError) console.error('Lỗi upsert racer_snapshots:', snapshotError);
+
+      console.log(`✅ Đã lưu rank cho region ${region} - top speed ${newTopSpeed} km/h`);
+    } catch (err) {
+      console.error('Lỗi updateRankTables:', err);
+    }
+  }, [user, gpsStatus]);
+
   // ==================== HANDLE PAYOS RETURN URL (success) ====================
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -645,7 +701,9 @@ export default function RunPage() {
       console.error('Lỗi khi lưu run:', err);
     }
 
-    if (!isTrialRun) {
+    // ==================== FIX CHÍNH: LUÔN LƯU VÀO BẢNG RANK KHI ĐÃ MUA GÓI (không phân biệt trial/paid cho logic rank) ====================
+    if (!isTrialRun && finalMaxSpeed >= 40) {
+      await updateRankTables(finalMaxSpeed, currentRegion);
       const processInBackground = async () => {
         try {
           const today = new Date().toISOString().split('T')[0];
@@ -692,7 +750,7 @@ export default function RunPage() {
     }
 
     await refreshUserData();
-  }, [watchId, stopDeviceMotion, user, selectedVehicle, currentRegion, hasActiveSub, freeRunsUsed, refreshUserData]);
+  }, [watchId, stopDeviceMotion, user, selectedVehicle, currentRegion, hasActiveSub, freeRunsUsed, refreshUserData, updateRankTables]);
 
   const resetRun = useCallback(() => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
