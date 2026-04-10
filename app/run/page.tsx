@@ -298,53 +298,14 @@ export default function RunPage() {
     setHasActiveSub(!!sub && (sub.remaining_runs ?? 0) > 0);
   }, [user]);
 
-  const updateRankTables = useCallback(async (maxSpeed: number, region: string) => {
-    if (!user?.id || maxSpeed < 40) return;
-
-    const today = new Date().toISOString().split('T')[0];
-
-    try {
-      const { data: currentHotspot } = await supabase
-        .from('region_daily_hotspots')
-        .select('top_speed')
-        .eq('region', region)
-        .eq('snapshot_date', today)
-        .eq('zone_name', region)
-        .maybeSingle();
-
-      const newTopSpeed = currentHotspot ? Math.max(currentHotspot.top_speed || 0, maxSpeed) : maxSpeed;
-
-      await supabase
-        .from('region_daily_hotspots')
-        .upsert({
-          region: region,
-          snapshot_date: today,
-          zone_name: region,
-          top_speed: newTopSpeed,
-          peak_g_force: 0,
-        }, { onConflict: 'region,snapshot_date,zone_name' });
-
-      await supabase
-        .from('racer_snapshots')
-        .upsert({
-          user_id: user.id,
-          current_region: region,
-          peak_g_force: 0,
-          gps_satellites: null,
-          gps_signal_status: gpsStatus || 'Good',
-          last_updated: new Date().toISOString(),
-        }, { onConflict: 'user_id' });
-    } catch (err) {
-      // silent
-    }
-  }, [user, gpsStatus]);
-
+  // ==================== HANDLE PAYOS RETURN URL (success) ====================
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     if (params.get('success') === 'true') {
       setShowBuyModal(false);
       refreshUserData().then(() => {
         window.history.replaceState({}, document.title, window.location.pathname);
+        // Không reload trang nữa → UI tự cập nhật mượt mà
       });
     } else if (params.get('cancel') === 'true') {
       setShowBuyModal(false);
@@ -379,12 +340,14 @@ export default function RunPage() {
     await supabase.auth.signInWithOAuth({ provider: 'google', options: { redirectTo: window.location.origin + '/run' } });
   }, []);
 
+  // ==================== MỚI: MUA NGAY → TRỰC TIẾP PAYOS (KHÔNG QUA MODAL TRUNG GIAN) ====================
   const handlePurchase = async (pkg: Package) => {
     if (!user || !pkg) return;
 
     const memo = `toprace${pkg.name}`;
 
-    await supabase.from('payment_logs').insert({
+    // 1. Tạo payment_log pending
+    const { error: insertError } = await supabase.from('payment_logs').insert({
       user_id: user.id,
       package_id: pkg.id,
       amount: pkg.price,
@@ -392,6 +355,13 @@ export default function RunPage() {
       status: 'pending',
     });
 
+    if (insertError) {
+      console.error('Lỗi tạo payment_log:', insertError);
+      alert('Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.');
+      return;
+    }
+
+    // 2. Tạo PayOS order
     try {
       const orderCode = Math.floor(Date.now() / 1000);
 
@@ -441,10 +411,15 @@ export default function RunPage() {
       const result = await response.json();
 
       if (result.code === '00' && result.data?.checkoutUrl) {
+        // REDIRECT TRỰC TIẾP SANG PAYOS
         window.location.href = result.data.checkoutUrl;
+      } else {
+        console.error('PayOS error:', result);
+        alert(`Lỗi PayOS: ${result.desc || JSON.stringify(result)}`);
       }
     } catch (err) {
-      // silent
+      console.error('Lỗi tạo PayOS order:', err);
+      alert('Lỗi kết nối PayOS. Vui lòng thử lại sau.');
     }
   };
 
@@ -638,31 +613,43 @@ export default function RunPage() {
       setFreeRunsUsed(newUsed);
     }
 
-    // ==================== CHỈ LƯU VÀO DB KHI ĐÃ MUA GÓI VÀ TỐC ĐỘ >= 40km/h ====================
-    if (!isTrialRun && finalMaxSpeed >= 40) {
-      const insertData = {
-        user_id: user.id,
-        vehicle_id: selectedVehicle.id,
-        max_speed: finalMaxSpeed,
-        zero_to_sixty: null,
-        zero_to_hundred: zeroToHundred,
-        distance_to_max_speed: null,
-        gps_data: [],
-        start_lat: null,
-        start_lng: null,
-        end_lat: null,
-        end_lng: null,
-        region: currentRegion,
-        gps_accuracy: 'Good',
-        is_low_accuracy: false,
-        ai_analysis: null,
-        ai_verified: false,
-      };
+    try {
+      if (!isTrialRun) {
+        const { error } = await supabase.from('runs').insert({
+          user_id: user.id,
+          vehicle_id: selectedVehicle.id,
+          max_speed: finalMaxSpeed,
+          zero_to_sixty: null,
+          zero_to_hundred: zeroToHundred,
+          distance_to_max_speed: null,
+          gps_data: [],
+          start_lat: null,
+          start_lng: null,
+          end_lat: null,
+          end_lng: null,
+          region: currentRegion,
+          gps_accuracy: 'Good',
+          is_low_accuracy: false,
+          ai_analysis: null,
+          ai_verified: false,
+          is_trial_run: false,
+        });
+        if (error) console.error('Lỗi insert run:', error);
+      } else {
+        await supabase.from('runs').insert({
+          user_id: user.id,
+          vehicle_id: selectedVehicle.id,
+          max_speed: finalMaxSpeed,
+          zero_to_hundred: zeroToHundred,
+          region: currentRegion,
+          is_trial_run: true,
+        });
+      }
+    } catch (err) {
+      console.error('Lỗi khi lưu run:', err);
+    }
 
-      await supabase.from('runs').insert(insertData);
-
-      await updateRankTables(finalMaxSpeed, currentRegion);
-
+    if (!isTrialRun) {
       const processInBackground = async () => {
         try {
           const today = new Date().toISOString().split('T')[0];
@@ -697,7 +684,7 @@ export default function RunPage() {
             isNewPersonalBest,
           }));
         } catch (err) {
-          // silent
+          console.error(err);
         } finally {
           setIsCalculatingRank(false);
         }
@@ -709,7 +696,7 @@ export default function RunPage() {
     }
 
     await refreshUserData();
-  }, [watchId, stopDeviceMotion, user, selectedVehicle, currentRegion, hasActiveSub, freeRunsUsed, refreshUserData, updateRankTables]);
+  }, [watchId, stopDeviceMotion, user, selectedVehicle, currentRegion, hasActiveSub, freeRunsUsed, refreshUserData]);
 
   const resetRun = useCallback(() => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
@@ -753,6 +740,38 @@ export default function RunPage() {
     if (countdown === 4) return 'READY';
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
+
+  const checkGPS = useCallback(async () => {
+    setIsCheckingGPS(true);
+    setErrorMessage('');
+    if (!navigator.geolocation) {
+      setErrorMessage('Thiết bị không hỗ trợ GPS');
+      setGpsStatus('Không hỗ trợ GPS');
+      setIsCheckingGPS(false);
+      return;
+    }
+
+    const options = getGeolocationOptions();
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { accuracy, speed, latitude, longitude } = position.coords;
+        const regionName = getRegionFromCoords(latitude, longitude);
+        setCurrentRegion(regionName);
+
+        const info = getGPSStatusInfo(accuracy, speed !== null && speed !== undefined);
+        setGpsStatus(info.text);
+        setGpsAccuracy(Math.round(accuracy));
+        setIsCheckingGPS(false);
+      },
+      (error) => {
+        setErrorMessage(error.code === 1 ? 'Bạn chưa cấp quyền GPS' : 'Lỗi GPS: ' + error.message);
+        setGpsStatus('Lỗi GPS');
+        setIsCheckingGPS(false);
+      },
+      options
+    );
+  }, [getGeolocationOptions]);
 
   if (isAuthLoading || !isDataLoaded) {
     return <div className="flex-1 flex items-center justify-center min-h-0 bg-zinc-950 text-green-500 text-lg">Đang tải dữ liệu người dùng...</div>;
@@ -966,6 +985,7 @@ export default function RunPage() {
         </div>
       )}
 
+      {/* BUY MODAL - ĐÃ TỐI ƯU: MUA NGAY → TRỰC TIẾP PAYOS */}
       <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
         <DialogContent className="w-[95vw] max-w-lg rounded-3xl">
           <DialogHeader>
