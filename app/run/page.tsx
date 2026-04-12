@@ -146,6 +146,7 @@ export default function RunPage() {
   const [showPaymentModal, setShowPaymentModal] = useState(false);
   const [selectedPackage, setSelectedPackage] = useState<any>(null);
   const [paymentLink, setPaymentLink] = useState<string>('');
+  const [currentOrderCode, setCurrentOrderCode] = useState<number | null>(null);
 
   const canStartRun = hasActiveSub || freeRunsUsed < 2;
 
@@ -708,7 +709,7 @@ export default function RunPage() {
     return countdown;
   }, [isAutoCheckingOnStart, countdown, currentSpeed, currentRegion]);
 
-  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER ====================
+  // ==================== TẠO PAYMENT_LOG + PAYOS ORDER (ĐÃ FIX order_code) ====================
   const openPaymentModal = async (pkg: any) => {
     if (!user || !pkg) return;
 
@@ -718,31 +719,37 @@ export default function RunPage() {
     setPaymentLink('');
 
     const memo = `toprace${pkg.name}`;
+    const orderCode = Date.now(); // unique bằng millisecond + đủ lớn cho PayOS
 
     const { error } = await supabase.from('payment_logs').insert({
       user_id: user.id,
       package_id: pkg.id,
       amount: pkg.price,
       memo: memo,
+      order_code: orderCode,        // ← FIX QUAN TRỌNG NHẤT
       status: 'pending',
     });
 
     if (error) {
       console.error('Lỗi tạo payment_log:', error);
       alert('Không thể tạo yêu cầu thanh toán. Vui lòng thử lại.');
+      return;
     }
+
+    // Lưu orderCode vào state để useEffect sau dùng chính xác cùng giá trị
+    setCurrentOrderCode(orderCode);
   };
 
+  // ==================== TẠO PAYOS ORDER (sửa để dùng order_code đã lưu) ====================
   useEffect(() => {
-    if (!showPaymentModal || !selectedPackage) return;
+    if (!showPaymentModal || !selectedPackage || !currentOrderCode) return;
 
     const createPayOSOrder = async () => {
       try {
         const memo = `toprace${selectedPackage.name}`;
-        const orderCode = Math.floor(Date.now() / 1000);
 
         const requestBody = {
-          orderCode,
+          orderCode: currentOrderCode,           // ← DÙNG GIÁ TRỊ ĐÃ LƯU, KHÔNG TẠO LẠI
           amount: selectedPackage.price,
           description: memo,
           items: [{
@@ -788,7 +795,7 @@ export default function RunPage() {
 
         if (result.code === '00' && result.data?.checkoutUrl) {
           setPaymentLink(result.data.checkoutUrl);
-          console.log('✅ PayOS order created successfully');
+          console.log('✅ PayOS order created successfully with orderCode:', currentOrderCode);
         } else {
           console.error('PayOS error:', result);
           alert(`Lỗi PayOS: ${result.desc || JSON.stringify(result)}`);
@@ -800,7 +807,7 @@ export default function RunPage() {
     };
 
     createPayOSOrder();
-  }, [showPaymentModal, selectedPackage]);
+  }, [showPaymentModal, selectedPackage, currentOrderCode]);
 
   const copyToClipboard = (text: string) => {
     navigator.clipboard.writeText(text).then(() => alert('Đã copy!'));
